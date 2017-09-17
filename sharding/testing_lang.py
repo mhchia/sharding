@@ -25,9 +25,10 @@ class TestingLang(object):
         self.c = tester.Chain(env='sharding', deploy_sharding_contracts=True)
         self.valmgr = self.c.contract(validator_manager_utils.get_valmgr_code(), language='viper')
         self.c.mine(5)
+        self.current_validators = {}
         self.handlers = {}
         self.handlers['B'] = self.handle_B
-        # self.handlers['C'] = self.handle_C
+        self.handlers['C'] = self.handle_C
         self.handlers['D'] = self.handle_D
         self.handlers['W'] = self.handle_W
 
@@ -58,15 +59,32 @@ class TestingLang(object):
 
 
     def handle_C(self, param_str):
-        pass
+        shard_id, number = map(int, param_str.split(','))
+        collator_valcode_addr = utils.parse_as_bin(self.valmgr.sample(shard_id))
+        if collator_valcode_addr == (b'\x00' * 20):
+            print("No collator in this period in shard {}".format(shard_id))
+            return
+        validator_index = self.current_validators[collator_valcode_addr]
+        collator_privkey = tester.keys[validator_index]
+        if not self.c.chain.has_shard(shard_id):
+            self.c.add_test_shard(shard_id)
+        collation = self.c.collate(shard_id, collator_privkey)
+        expected_period_number = self.c.chain.get_expected_period_number()
+        self.c.set_collation(
+            shard_id,
+            expected_period_number=expected_period_number,
+            parent_collation_hash=collation.header.hash
+        )
 
 
     def handle_D(self, param_str):
         validator_index = int(param_str)
-        valcode = validator_manager_utils.mk_validation_code(tester.accounts[validator_index])
-        valcode_addr = self.c.tx(sender=tester.keys[validator_index], to=b'', data=valcode)
+        privkey = tester.keys[validator_index]
+        valcode_addr = self.c.sharding_valcode_addr(privkey)
         ret_addr = utils.privtoaddr(utils.sha3("ret_addr"))
+        # self.c.sharding_deposit(privkey, valcode_addr)
         self.valmgr.deposit(valcode_addr, ret_addr, value=100*utils.denoms.ether)
+        self.current_validators[valcode_addr] = validator_index
 
 
     def handle_W(self, param_str):
@@ -79,8 +97,8 @@ class TestingLang(object):
                 tester.keys[validator_index]
             )
         )
-        
+
 
 def test_testing_lang():
     tl = TestingLang(Parser())
-    tl.execute("B1,2 D0 D1 W2 W1")
+    tl.execute("B2 D0 W0 D0 C0,2 B5 C0,2")
