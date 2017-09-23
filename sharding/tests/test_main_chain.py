@@ -137,9 +137,14 @@ def test_longest_chain_rule():
 
     # collate for the existing txs
     collation_0 = Collation(t.collate(shard_id, tester.k0))
+
+    block_1_1 = t.mine(5)
+
     t.set_collation(
         shard_id,
-        expected_period_number=collation_0.header.expected_period_number)
+        expected_period_number=(collation_0.header.expected_period_number + 1),
+        parent_collation_hash=collation_0.header.hash,
+    )
 
     # [block 2]: includes collation A -> B
     t.tx(tester.k1, tester.a2, 1, data=b'', shard_id=shard_id)
@@ -147,16 +152,17 @@ def test_longest_chain_rule():
     block_2 = t.mine(5)
     log.info('[block 2] CURRENT BLOCK HEAD:{}'.format(encode_hex(t.chain.head_hash)))
     log.info('[block 2] CURRENT SHARD HEAD:{}'.format(encode_hex(t.chain.shards[shard_id].head_hash)))
-    assert t.chain.shards[shard_id].get_score(t.chain.shards[shard_id].head) == 1
+    assert t.chain.shards[shard_id].get_score(t.chain.shards[shard_id].head) == 2
 
     # [block 2']: includes collation A -> B
     # Change main chain head
-    t.change_head(block_1.hash)
+    t.change_head(block_1_1.hash)
     # Clear tester
     t.set_collation(
         shard_id,
         expected_period_number=collation_AB.header.expected_period_number,
-        parent_collation_hash=collation_AB.header.parent_collation_hash)
+        parent_collation_hash=collation_0.header.hash,
+    )
     # tx of shard 1
     t.tx(tester.k1, tester.a2, 1, data=b'', shard_id=shard_id)
     collation_AB_2 = Collation(t.collate(shard_id, tester.k0))
@@ -166,8 +172,8 @@ def test_longest_chain_rule():
     t.mine(5)
     log.info('[block 2\'] CURRENT BLOCK HEAD:{}'.format(encode_hex(t.chain.head_hash)))
     log.info('[block 2\'] CURRENT SHARD HEAD:{}'.format(encode_hex(t.chain.shards[shard_id].head_hash)))
-    assert t.chain.shards[shard_id].get_score(t.chain.shards[shard_id].head) == 1
-    assert t.chain.get_score(t.chain.head) == 13
+    assert t.chain.shards[shard_id].get_score(t.chain.shards[shard_id].head) == 2
+    assert t.chain.get_score(t.chain.head) == 18
 
     # [block 3']: includes collation B -> C
     # Clear tester
@@ -181,8 +187,8 @@ def test_longest_chain_rule():
     t.mine(5)
     log.info('[block 3\'] CURRENT BLOCK HEAD:{}'.format(encode_hex(t.chain.head_hash)))
     log.info('[block 3\'] CURRENT SHARD HEAD:{}'.format(encode_hex(t.chain.shards[shard_id].head_hash)))
-    assert t.chain.shards[shard_id].get_score(t.chain.shards[shard_id].head) == 2
-    assert t.chain.get_score(t.chain.head) == 18
+    assert t.chain.shards[shard_id].get_score(t.chain.shards[shard_id].head) == 3
+    assert t.chain.get_score(t.chain.head) == 23
     assert t.chain.shards[shard_id].head_hash == collation_BC.hash
 
     # [block 3]: doesn't include collation
@@ -191,14 +197,14 @@ def test_longest_chain_rule():
     t.mine(5)
     log.info('[block 3] CURRENT BLOCK HEAD:{}'.format(encode_hex(t.chain.head_hash)))
     log.info('[block 3] CURRENT SHARD HEAD:{}'.format(encode_hex(t.chain.shards[shard_id].head_hash)))
-    assert t.chain.shards[shard_id].get_score(t.chain.shards[shard_id].head) == 2
-    assert t.chain.get_score(t.chain.head) == 18
+    assert t.chain.shards[shard_id].get_score(t.chain.shards[shard_id].head) == 3
+    assert t.chain.get_score(t.chain.head) == 23
     assert t.chain.shards[shard_id].head_hash == collation_BC.hash
 
     # [block 4]: doesn't include collation
     t.mine(5)
     log.info('[block 4] CURRENT BLOCK HEAD:{}'.format(encode_hex(t.chain.head_hash)))
     log.info('[block 4] CURRENT SHARD HEAD:{}'.format(encode_hex(t.chain.shards[shard_id].head_hash)))
-    assert t.chain.shards[shard_id].get_score(t.chain.shards[shard_id].head) == 1
-    assert t.chain.get_score(t.chain.head) == 23
+    assert t.chain.shards[shard_id].get_score(t.chain.shards[shard_id].head) == 2
+    assert t.chain.get_score(t.chain.head) == 28
     assert t.chain.shards[shard_id].head_hash == collation_AB.hash
