@@ -284,6 +284,19 @@ class Chain(object):
             period_start_prevhash = self.chain.get_period_start_prevhash(expected_period_number)
         return period_start_prevhash
 
+    def update_collation(self, shard_id, parent_collation_hash=None, expected_period_number=None):
+        if expected_period_number is None:
+            expected_period_number = self.chain.get_expected_period_number()
+        if parent_collation_hash is None:
+            parent_collation_hash = self.chain.shards[shard_id].head_hash
+        period_start_prevhash = self._get_period_start_prevhash(expected_period_number)
+        period_start_prevblock = self.chain.get_block(period_start_prevhash)
+        assert period_start_prevblock is not None
+        self.collation[shard_id].header.expected_period_number = expected_period_number
+        self.collation[shard_id].header.period_start_prevhash = period_start_prevhash
+        self.collation[shard_id].header.period_start_prevblock = period_start_prevblock
+        self.collation[shard_id].header.parent_collation_hash = parent_collation_hash
+
     def set_collation(self, shard_id, expected_period_number, parent_collation_hash=None, coinbase=a0):
         """Set collation before building some transactions on the shard chain
 
