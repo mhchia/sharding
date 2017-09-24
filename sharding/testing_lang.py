@@ -32,6 +32,7 @@ class TestingLang(object):
         self.c.mine(5)
         # self.update_collations()
         self.latest_collation = {}
+        self.collation_map = []
         self.current_validators = {}
         self.handlers = {}
         self.handlers['B'] = self.mine_block
@@ -80,7 +81,19 @@ class TestingLang(object):
 
 
     def collate(self, param_str):
-        shard_id, number = map(int, param_str.split(','))
+        """1) Ci    : create a collation based on the head collation in shard `i`
+           2) Cs,i,j: create a collation based on the `j`th collation in the `i`th layer of the
+                      shard chain tree in shard `s`
+        """
+        params_list = param_str.split(',')
+        len_params_list = len(params_list)
+        if len_params_list == 1:
+            shard_id = int(params_list[0])
+        elif len_params_list == 3:
+            shard_id, height, kth = map(int, params_list)
+        else:
+            raise ValueError("Invalid number of parameters")
+
         collator_valcode_addr = utils.parse_as_bin(self.valmgr.sample(shard_id))
         print("!@# collator_valcode_addr: ", collator_valcode_addr)
         if collator_valcode_addr == (b'\x00' * 20):
@@ -90,29 +103,53 @@ class TestingLang(object):
         collator_privkey = tester.keys[validator_index]
         if not self.c.chain.has_shard(shard_id):
             self.c.add_test_shard(shard_id)
+            self.collation_map.append(
+                [{'hash': b'\x00' * 32, 'parent_hash': None, 'parent_kth': -1}],
+            )
             self.latest_collation[shard_id] = None
-            # print("!@# head_hash: ", self.c.chain.shards[shard_id].head_hash)
-            # print("!@#score123: ", self.valmgr.get_colhdr(shard_id, collation.header.hash))
-            # print("!@#score1233: ", self.c.chain.shards[shard_id].get_score(collation.header))
-            # self.c.update_collation(shard_id)
+
+        if len_params_list == 3:
+            parent_collation_hash = self.collation_map[height][kth]['hash']
+            collation = self.c.generate_collation(
+                shard_id=shard_id,
+                coinbase=utils.privtoaddr(collator_privkey),
+                key=collator_privkey,
+                txqueue=None,
+                parent_collation_hash=parent_collation_hash,
+            )
+            period_start_prevblock = self.c.chain.get_block(collation.header.period_start_prevhash)
+            self.c.chain.shards[shard_id].add_collation(
+                collation,
+                period_start_prevblock,
+                self.c.chain.handle_ignored_collation,
+            )
+            try:
+                layer_height = self.collation_map[height + 1]
+            except IndexError:
+                layer_height = []
+                self.collation_map.append(layer_height)
+            ind = 0
+            while ind < len(layer_height):
+                if layer_height[ind]['parent_kth'] < kth:
+                    break
+                ind += 1
+            layer_height.insert(
+                ind,
+                {
+                    'hash' : collation.header.hash,
+                    'parent_hash': parent_collation_hash,
+                    'parent_kth': kth
+                }
+            )
         else:
-            pass
-            # self.c.update_collation(shard_id, parent_collation_hash=self.latest_collation[shard_id])
-            # print("!@#head_hash: ", self.c.chain.shards[shard_id].head_hash)
-            # print("!@#score1234: ", self.valmgr.get_collation_headers__score(shard_id, collation.header.hash))
-            # print("!@#score12344: ", self.c.chain.shards[shard_id].get_score(collation.header))
-            # print("!@# head_hash: ", self.c.chain.shards[shard_id].head_hash)
-        expected_period_number = self.c.chain.get_expected_period_number()
-        collation = Collation(self.c.collate(shard_id, collator_privkey))
-        self.c.set_collation(
-            shard_id,
-            expected_period_number=expected_period_number,
-            parent_collation_hash=collation.header.hash,
-        )
-        print("!@#score123: ", self.valmgr.get_colhdr(shard_id, collation.header.hash))
-        self.latest_collation[shard_id] = collation.header.hash
-        # print("collation_header_parent", self.valmgr.get_collation_headers__parent_collation_hash(shard_id, collation.header.hash))
-        # print("collation_header_score", self.valmgr.get_collation_headers__score(shard_id, collation.header.hash))
+            expected_period_number = self.c.chain.get_expected_period_number()
+            collation = Collation(self.c.collate(shard_id, collator_privkey))
+            self.c.set_collation(
+                shard_id,
+                expected_period_number=expected_period_number,
+                parent_collation_hash=collation.header.hash,
+            )
+            self.latest_collation[shard_id] = collation.header.hash
 
 
     def deposit_validator(self, param_str):
@@ -136,9 +173,11 @@ class TestingLang(object):
                 tester.keys[validator_index]
             )
         )
+        if not result:
+            raise ValueError("Withdraw failed")
 
 
 def test_testing_lang():
     tl = TestingLang(Parser())
-    tl.execute("D0 B5 C0,2 C0,2 C0,2 B5 C0,2 C0,2 B5")
+    tl.execute("D0 W0 D0 B5 C0 C0 C0 B5 C0 C0 B5 C0 C0 C0,0,0 C0,1,0 C1,0,0")
     # tl.test_zero_hash()
