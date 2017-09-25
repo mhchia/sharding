@@ -12,8 +12,14 @@ log_tl = get_logger('sharding.tl')
 class Parser(object):
     def parse(self, test_string):
         cmds = []
-        for token in test_string.split(' '):
-            cmd, params = re.match("([A-Za-z]+)([0-9,]+)", token).groups()
+        comment_pat = re.compile(r"#.*$")
+        cmd_params_pat = re.compile(r"([A-Za-z]+)([0-9,]+)")
+        for token in test_string.split('\n'):
+            token = token.replace(' ', '')
+            token = comment_pat.sub('', token)
+            if token == '':
+                continue
+            cmd, params = cmd_params_pat.match(token).groups()
             if (cmd + params) != token:
                 raise ValueError("Bad token")
             cmds.append((cmd, params))
@@ -182,5 +188,10 @@ class TestingLang(object):
 
 def test_testing_lang():
     tl = TestingLang(Parser())
-    tl.execute("D0 W0 D0 B5 C0 C0 C0 B5 C0 C0 B5 C0 C0 C0,0,0 C0,1,0 C1,0,0")
+    # tl.execute("D0 W0 D0 B5 C0 C0 C0 B5 C0 C0 B5 C0 C0 C0,0,0 C0,1,0 C1,0,0")
+    cmds = """
+    D0 # deposit validator 0
+    W0 # withdraw validator 0
+"""
+    tl.execute(cmds)
     # tl.test_zero_hash()
