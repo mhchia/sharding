@@ -32,7 +32,7 @@ class TestingLang(object):
         self.c.mine(5)
         # self.update_collations()
         self.latest_collation = {}
-        self.collation_map = []
+        self.collation_map = {}
         self.current_validators = {}
         self.handlers = {}
         self.handlers['B'] = self.mine_block
@@ -95,7 +95,6 @@ class TestingLang(object):
             raise ValueError("Invalid number of parameters")
 
         collator_valcode_addr = utils.parse_as_bin(self.valmgr.sample(shard_id))
-        print("!@# collator_valcode_addr: ", collator_valcode_addr)
         if collator_valcode_addr == (b'\x00' * 20):
             print("No collator in this period in shard {}".format(shard_id))
             return
@@ -103,13 +102,15 @@ class TestingLang(object):
         collator_privkey = tester.keys[validator_index]
         if not self.c.chain.has_shard(shard_id):
             self.c.add_test_shard(shard_id)
-            self.collation_map.append(
+            self.collation_map[shard_id] = []
+            self.collation_map[shard_id].append(
                 [{'hash': b'\x00' * 32, 'parent_hash': None, 'parent_kth': -1}],
             )
             self.latest_collation[shard_id] = None
 
         if len_params_list == 3:
-            parent_collation_hash = self.collation_map[height][kth]['hash']
+            shard_collation_map = self.collation_map[shard_id]
+            parent_collation_hash = shard_collation_map[height][kth]['hash']
             collation = self.c.generate_collation(
                 shard_id=shard_id,
                 coinbase=utils.privtoaddr(collator_privkey),
@@ -124,16 +125,19 @@ class TestingLang(object):
                 self.c.chain.handle_ignored_collation,
             )
             try:
-                layer_height = self.collation_map[height + 1]
+                layer_at_height = shard_collation_map[height + 1]
             except IndexError:
-                layer_height = []
-                self.collation_map.append(layer_height)
+                layer_at_height = []
+                shard_collation_map.append(layer_at_height)
+            # TODO: not sure if using binary search will help?
+            #       in average case the num of collations at a certain height
+            #       should be small
             ind = 0
-            while ind < len(layer_height):
-                if layer_height[ind]['parent_kth'] < kth:
+            while ind < len(layer_at_height):
+                if layer_at_height[ind]['parent_kth'] < kth:
                     break
                 ind += 1
-            layer_height.insert(
+            layer_at_height.insert(
                 ind,
                 {
                     'hash' : collation.header.hash,
@@ -158,7 +162,6 @@ class TestingLang(object):
         valcode_addr = self.c.sharding_valcode_addr(privkey)
         ret_addr = utils.privtoaddr(utils.sha3("ret_addr"))
         self.c.sharding_deposit(privkey, valcode_addr)
-        # print("!@# deposit: ", self.valmgr.deposit(valcode_addr, ret_addr, value=100*utils.denoms.ether))
         self.current_validators[valcode_addr] = validator_index
 
 
