@@ -33,12 +33,13 @@ class TestingLang(object):
         self.valmgr = tester.ABIContract(
             self.c,
             validator_manager_utils.get_valmgr_ct(),
-            validator_manager_utils.get_valmgr_addr()
+            validator_manager_utils.get_valmgr_addr(),
         )
         self.c.mine(5)
         # self.update_collations()
         self.latest_collation = {}
         self.collation_map = {}
+        self.shard_head = {}
         self.current_validators = {}
         self.handlers = {}
         self.handlers['B'] = self.mine_block
@@ -62,10 +63,6 @@ class TestingLang(object):
                 print("Error at: " + executed_cmds + '"{}"'.format(cmd + param_str))
                 raise
             executed_cmds += (cmd + param_str + " ")
-
-
-    def test_zero_hash(self):
-        print(self.valmgr.test_zero_hash(b'\x00' * 32))
 
 
     def update_collations(self):
@@ -96,7 +93,7 @@ class TestingLang(object):
         if len_params_list == 1:
             shard_id = int(params_list[0])
         elif len_params_list == 3:
-            shard_id, height, kth = map(int, params_list)
+            shard_id, parent_height, parent_kth = map(int, params_list)
         else:
             raise ValueError("Invalid number of parameters")
 
@@ -116,7 +113,7 @@ class TestingLang(object):
 
         if len_params_list == 3:
             shard_collation_map = self.collation_map[shard_id]
-            parent_collation_hash = shard_collation_map[height][kth]['hash']
+            parent_collation_hash = shard_collation_map[parent_height][parent_kth]['hash']
             collation = self.c.generate_collation(
                 shard_id=shard_id,
                 coinbase=utils.privtoaddr(collator_privkey),
@@ -131,7 +128,7 @@ class TestingLang(object):
                 self.c.chain.handle_ignored_collation,
             )
             try:
-                layer_at_height = shard_collation_map[height + 1]
+                layer_at_height = shard_collation_map[parent_height + 1]
             except IndexError:
                 layer_at_height = []
                 shard_collation_map.append(layer_at_height)
@@ -140,18 +137,27 @@ class TestingLang(object):
             #       should be small
             ind = 0
             while ind < len(layer_at_height):
-                if layer_at_height[ind]['parent_kth'] < kth:
+                if layer_at_height[ind]['parent_kth'] < parent_kth:
                     break
                 ind += 1
-            layer_at_height.insert(
-                ind,
-                {
-                    'hash' : collation.header.hash,
+            # TODO: the field `parent_kth` would be wrong when there is a new collation
+            #       inserted before the parent in the list
+            #       [Possible solution]: record all reference to the children collations of a
+            #           collation, when a collation is inserted, iterate all affected collations
+            #           and update their `parent_kth`. This takes O(k^2), which k is the node
+            #           degree of a node
+            collation_obj = {
+                    'hash': collation.header.hash,
+                    'height': parent_height + 1,
                     'parent_hash': parent_collation_hash,
-                    'parent_kth': kth
-                }
-            )
+                    'parent_kth': parent_kth,
+            }
+            layer_at_height.insert(ind, collation_obj)
+            # if it is the longest chain, set it as the shard head
+            if len(layer_at_height) == 1:
+                self.shard_head[shard_id] = collation_obj
         else:
+            # TODO: also record the created collations in the self.collation_map
             expected_period_number = self.c.chain.get_expected_period_number()
             collation = Collation(self.c.collate(shard_id, collator_privkey))
             self.c.set_collation(
@@ -192,6 +198,20 @@ def test_testing_lang():
     cmds = """
     D0 # deposit validator 0
     W0 # withdraw validator 0
+    D0
+    B5
+    C0
+    C0
+    C0
+    B5
+    C0
+    C0
+    B5
+    C0
+    C0
+    C0,0,0
+    C0,1,0
+    C1,0,0
+#    C2,1,0
 """
     tl.execute(cmds)
-    # tl.test_zero_hash()
