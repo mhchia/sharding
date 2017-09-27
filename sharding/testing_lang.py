@@ -38,7 +38,6 @@ class TestingLang(object):
         )
         self.c.mine(5)
         # self.update_collations()
-        self.latest_collation = {}
         self.collation_map = {}
         self.shard_head = {}
         self.current_validators = {}
@@ -110,8 +109,8 @@ class TestingLang(object):
             self.collation_map[shard_id].append(
                 [{'hash': b'\x00' * 32, 'parent_hash': None}],
             )
-            self.latest_collation[shard_id] = None
 
+        shard_collation_map = self.collation_map[shard_id]
         if len_params_list == 1:
             # TODO: also record the created collations in the self.collation_map
             expected_period_number = self.c.chain.get_expected_period_number()
@@ -121,9 +120,24 @@ class TestingLang(object):
                 expected_period_number=expected_period_number,
                 parent_collation_hash=collation.header.hash,
             )
-            self.latest_collation[shard_id] = collation.header.hash
+            parent_collation_hash = collation.header.parent_collation_hash
+            collation_score = validator_manager_utils.call_valmgr(
+                self.c.head_state,
+                'get_collation_headers__score',
+                [shard_id, collation.header.hash],
+            )
+            parent_height = collation_score - 1
+            parent_layer = shard_collation_map[parent_height]
+            parent_kth = 0
+            while parent_kth < len(parent_layer):
+                if parent_layer[parent_kth]['hash'] == parent_collation_hash:
+                    break
+                parent_kth += 1
+            assert parent_kth != len(parent_layer)  # parent must exist
+
+            print("!@# score: ", collation_score)
+            print("!@# head_hash: ", self.c.chain.shards[shard_id].head_hash)
         elif len_params_list == 3:
-            shard_collation_map = self.collation_map[shard_id]
             parent_collation_hash = shard_collation_map[parent_height][parent_kth]['hash']
             collation = self.c.generate_collation(
                 shard_id=shard_id,
@@ -138,36 +152,6 @@ class TestingLang(object):
                 period_start_prevblock,
                 self.c.chain.handle_ignored_collation,
             )
-            insert_index = 0
-            try:
-                layer_at_height = shard_collation_map[parent_height + 1]
-
-                assert len(shard_collation_map[parent_height]) > 0
-                parent_ptr = len(shard_collation_map[parent_height]) - 1
-                assert len(layer_at_height) > 0
-                child_ptr = len(layer_at_height) - 1
-                # iterate each child and find its parent
-                # the first child whose parent's index is less than or equaled to the
-                # target parent's index, we insert the new collation after the child.
-                while child_ptr >= 0:
-                    while layer_at_height[child_ptr]['parent_hash'] != \
-                          shard_collation_map[parent_height][parent_ptr]['hash']:
-                          parent_ptr -= 1
-                    assert parent_ptr >= 0  # a child must have a parent
-                    if parent_ptr <= parent_kth:
-                        insert_index = child_ptr
-                        break
-                    child_ptr -= 1
-            except IndexError:
-                layer_at_height = []
-                shard_collation_map.append(layer_at_height)
-
-            collation_obj = {
-                'hash': collation.header.hash,
-                'parent_hash': parent_collation_hash,
-            }
-            layer_at_height.insert(insert_index, collation_obj)
-
             tx = validator_manager_utils.call_tx_add_header(
                 self.c.head_state,
                 collator_privkey,
@@ -176,9 +160,44 @@ class TestingLang(object):
             )
             self.c.direct_tx(tx)
 
-            # if it is the longest chain, set it as the shard head
-            if len(layer_at_height) == 1:
-                self.shard_head[shard_id] = collation_obj
+        insert_index = 0
+        try:
+            layer_at_height = shard_collation_map[parent_height + 1]
+
+            assert len(shard_collation_map[parent_height]) > 0
+            parent_ptr = len(shard_collation_map[parent_height]) - 1
+            assert len(layer_at_height) > 0
+            child_ptr = len(layer_at_height) - 1
+            # iterate each child and find its parent
+            # the first child whose parent's index is less than or equaled to the
+            # target parent's index, we insert the new collation after the child.
+            while child_ptr >= 0:
+                while layer_at_height[child_ptr]['parent_hash'] != \
+                      shard_collation_map[parent_height][parent_ptr]['hash']:
+                      parent_ptr -= 1
+                assert parent_ptr >= 0  # a child must have a parent
+                if parent_ptr <= parent_kth:
+                    insert_index = child_ptr
+                    break
+                child_ptr -= 1
+        except IndexError:
+            layer_at_height = []
+            shard_collation_map.append(layer_at_height)
+
+        collation_obj = {
+            'hash': collation.header.hash,
+            'parent_hash': parent_collation_hash,
+        }
+        layer_at_height.insert(insert_index, collation_obj)
+
+        # if it is the longest chain, set it as the shard head
+        if len(layer_at_height) == 1:
+            self.shard_head[shard_id] = collation_obj
+        print(
+            "!@# len(shard_collation_map)={}, shard_collation_map[-1][0]['hash']={}".format(
+                len(shard_collation_map), shard_collation_map[-1][0]['hash'],
+            )
+        )
 
 
     def deposit_validator(self, param_str):
@@ -214,14 +233,19 @@ def test_testing_lang():
     D0
     B5
     C0
+    B1
     C0
+    B1
     C0
     B5
     C0
+    B1
     C0
     B5
     C0
+    B1
     C0
+    B1
     C0,0,0
     C0,1,0
     C1,0,0
