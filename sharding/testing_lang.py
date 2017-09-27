@@ -28,7 +28,7 @@ class Parser(object):
 
 
 class TestingLang(object):
-    def __init__(self, parser):
+    def __init__(self, parser=Parser()):
         self.parser = parser
         self.c = tester.Chain(env='sharding', deploy_sharding_contracts=True)
         self.valmgr = tester.ABIContract(
@@ -63,6 +63,10 @@ class TestingLang(object):
                 print("Error at: " + executed_cmds + '"{}"'.format(cmd + param_str))
                 raise
             executed_cmds += (cmd + param_str + " ")
+
+
+    def get_tester_chain():
+        return self.c
 
 
     def update_collations(self):
@@ -103,6 +107,7 @@ class TestingLang(object):
             return
         validator_index = self.current_validators[collator_valcode_addr]
         collator_privkey = tester.keys[validator_index]
+
         if not self.c.chain.has_shard(shard_id):
             self.c.add_test_shard(shard_id)
             self.collation_map[shard_id] = []
@@ -112,7 +117,6 @@ class TestingLang(object):
 
         shard_collation_map = self.collation_map[shard_id]
         if len_params_list == 1:
-            # TODO: also record the created collations in the self.collation_map
             expected_period_number = self.c.chain.get_expected_period_number()
             collation = Collation(self.c.collate(shard_id, collator_privkey))
             self.c.set_collation(
@@ -225,30 +229,38 @@ class TestingLang(object):
 
 
 def test_testing_lang():
-    tl = TestingLang(Parser())
+    tl = TestingLang()
     # tl.execute("D0 W0 D0 B5 C0 C0 C0 B5 C0 C0 B5 C0 C0 C0,0,0 C0,1,0 C1,0,0")
     cmds = """
-    D0 # deposit validator 0
-    W0 # withdraw validator 0
-    D0
-    B5
-    C0
-    B1
-    C0
-    B1
-    C0
-    B5
-    C0
-    B1
-    C0
-    B5
-    C0
-    B1
-    C0
-    B1
-    C0,0,0
-    C0,1,0
-    C1,0,0
-####   C2,1,0
-"""
+        D0 # deposit validator 0
+        W0 # withdraw validator 0
+        D0
+        B5
+        C0
+        B1
+        C0
+        B1
+        C0
+        B5
+        C0
+        B1
+        C0
+        B5
+        C0
+        B1
+        C0
+        B1
+        C0,0,0
+        C0,1,0
+        C1,0,0
+#####   C2,1,0  # Error: no corresponding parent
+    """
     tl.execute(cmds)
+
+
+def test_testing_lang_init_empty_cmds():
+    tl = TestingLang()
+    cmds = ""
+    tl.execute(cmds)
+
+
