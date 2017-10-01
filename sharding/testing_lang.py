@@ -100,8 +100,8 @@ class TestingLang(object):
         else:
             raise ValueError("Invalid number of parameters")
 
-        if (shard_id < 0) or (parent_height < 0) or (parent_kth < 0):
-            raise ValueError("Invalid parameters")
+        if shard_id < 0:
+            raise ValueError("Invalid shard_id")
 
         collator_valcode_addr = utils.parse_as_bin(self.valmgr.sample(shard_id))
         if collator_valcode_addr == (b'\x00' * 20):
@@ -140,10 +140,9 @@ class TestingLang(object):
                     break
                 parent_kth += 1
             assert parent_kth != len(parent_layer)  # parent must exist
-
-            print("!@# score: ", collation_score)
-            print("!@# head_hash: ", self.c.chain.shards[shard_id].head_hash)
         elif len_params_list == 3:
+            if (parent_height < 0) or (parent_kth < 0):
+                raise ValueError("Invalid shard_id")
             parent_collation_hash = shard_collation_map[parent_height][parent_kth]['hash']
             collation = self.c.generate_collation(
                 shard_id=shard_id,
@@ -200,12 +199,6 @@ class TestingLang(object):
         # if it is the longest chain, set it as the shard head
         if len(layer_at_height) == 1:
             self.shard_head[shard_id] = collation_obj
-        print(
-            "!@# len(shard_collation_map)={}, shard_collation_map[-1][0]['hash']={}".format(
-                len(shard_collation_map), shard_collation_map[-1][0]['hash'],
-            )
-        )
-        assert self.shard_head[shard_id] == self.collation_map[shard_id][-1][0]
 
 
     def deposit_validator(self, param_str):
