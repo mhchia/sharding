@@ -64,7 +64,7 @@ class TestingLang(object):
             executed_cmds += (cmd + param_str + " ")
 
 
-    def get_tester_chain():
+    def get_tester_chain(self):
         return self.c
 
 
@@ -114,7 +114,7 @@ class TestingLang(object):
             self.c.add_test_shard(shard_id)
             self.collation_map[shard_id] = []
             self.collation_map[shard_id].append(
-                [{'hash': b'\x00' * 32, 'parent_hash': None}],
+                [{'hash': b'\x00' * 32, 'parent_collation_hash': None}],
             )
 
         shard_collation_map = self.collation_map[shard_id]
@@ -178,7 +178,7 @@ class TestingLang(object):
             # target parent's index, we insert the new collation after the child.
             while child_ptr >= 0:
                 while (parent_ptr >= 0) and \
-                        (layer_at_height[child_ptr]['parent_hash'] != \
+                        (layer_at_height[child_ptr]['parent_collation_hash'] != \
                         shard_collation_map[parent_height][parent_ptr]['hash']):
                     parent_ptr -= 1
                 assert parent_ptr >= 0  # a child must have a parent
@@ -192,7 +192,7 @@ class TestingLang(object):
 
         collation_obj = {
             'hash': collation.header.hash,
-            'parent_hash': parent_collation_hash,
+            'parent_collation_hash': parent_collation_hash,
         }
         layer_at_height.insert(insert_index, collation_obj)
 
@@ -225,37 +225,8 @@ class TestingLang(object):
             raise ValueError("Withdraw failed")
 
 
-def test_testing_lang():
-    tl = TestingLang()
-    # tl.execute("D0 W0 D0 B5 C0 C0 C0 B5 C0 C0 B5 C0 C0 C0,0,0 C0,1,0 C1,0,0")
-    cmds = """
-        D0 # deposit validator 0
-        W0 # withdraw validator 0
-        D0
-        B5
-        C0
-        B1
-        C0
-        B1
-        C0
-        B5
-        C0
-        B1
-        C0
-        B5
-        C0
-        B1
-        C0
-        B1
-        C0,0,0
-        C0,1,0
-        C1,0,0
-#####   C2,1,0  # Error: no corresponding parent
-    """
-    tl.execute(cmds)
-
-
-def test_testing_lang_init_empty_cmds():
-    tl = TestingLang()
-    cmds = ""
-    tl.execute(cmds)
+    def print_collations_level_order(self, shard_id):
+        for layer in self.collation_map[shard_id]:
+            for collation in layer:
+                print("{}\t".format(collation['hash'][-4:]), end='', flush=True)
+            print("")
