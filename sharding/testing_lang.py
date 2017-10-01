@@ -37,7 +37,6 @@ class TestingLang(object):
             validator_manager_utils.get_valmgr_addr(),
         )
         self.c.mine(5)
-        # self.update_collations()
         self.collation_map = {}
         self.shard_head = {}
         self.current_validators = {}
@@ -100,6 +99,9 @@ class TestingLang(object):
             shard_id, parent_height, parent_kth = map(int, params_list)
         else:
             raise ValueError("Invalid number of parameters")
+
+        if (shard_id < 0) or (parent_height < 0) or (parent_kth < 0):
+            raise ValueError("Invalid parameters")
 
         collator_valcode_addr = utils.parse_as_bin(self.valmgr.sample(shard_id))
         if collator_valcode_addr == (b'\x00' * 20):
@@ -202,6 +204,7 @@ class TestingLang(object):
                 len(shard_collation_map), shard_collation_map[-1][0]['hash'],
             )
         )
+        assert self.shard_head[shard_id] == self.collation_map[shard_id][-1][0]
 
 
     def deposit_validator(self, param_str):
