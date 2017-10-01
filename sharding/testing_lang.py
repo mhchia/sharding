@@ -178,9 +178,10 @@ class TestingLang(object):
             # the first child whose parent's index is less than or equaled to the
             # target parent's index, we insert the new collation after the child.
             while child_ptr >= 0:
-                while layer_at_height[child_ptr]['parent_hash'] != \
-                      shard_collation_map[parent_height][parent_ptr]['hash']:
-                      parent_ptr -= 1
+                while (parent_ptr >= 0) and \
+                        (layer_at_height[child_ptr]['parent_hash'] != \
+                        shard_collation_map[parent_height][parent_ptr]['hash']):
+                    parent_ptr -= 1
                 assert parent_ptr >= 0  # a child must have a parent
                 if parent_ptr <= parent_kth:
                     insert_index = child_ptr
@@ -265,5 +266,3 @@ def test_testing_lang_init_empty_cmds():
     tl = TestingLang()
     cmds = ""
     tl.execute(cmds)
-
-
