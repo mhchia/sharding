@@ -3,6 +3,7 @@ import rlp
 
 from ethereum import utils
 from ethereum.slogging import get_logger
+from ethereum.transactions import Transaction
 
 from sharding import used_receipt_store_utils, validator_manager_utils
 from sharding.collation import Collation
@@ -36,6 +37,7 @@ class TestingLang(object):
             validator_manager_utils.get_valmgr_ct(),
             validator_manager_utils.get_valmgr_addr(),
         )
+        self.TX_VALUE = utils.denoms.gwei
         self.c.mine(5)
         self.collation_map = {}
         self.shard_head = {}
@@ -43,6 +45,7 @@ class TestingLang(object):
         self.handlers = {}
         self.handlers['B'] = self.mine_block
         self.handlers['C'] = self.collate
+        self.handlers['T'] = self.mk_transaction
         self.handlers['D'] = self.deposit_validator
         self.handlers['W'] = self.withdraw_validator
 
@@ -199,6 +202,49 @@ class TestingLang(object):
         # if it is the longest chain, set it as the shard head
         if len(layer_at_height) == 1:
             self.shard_head[shard_id] = collation_obj
+
+
+    def mk_transaction(self, param_str):
+        """1) T,0,1: send ether from v0 to v1 in mainchain
+           2) T0,1,2: send ether from v1 to v2 in shard 0
+           3) T,0,1,2: send ether from v1 in mainchain to v2 in shard 0
+        """
+        params_list = param_str.split(',')
+        if len(params_list) == 3:
+            sender_index, recipient_index = int(params_list[1]), int(params_list[2])
+            sender_privkey = tester.keys[sender_index]
+            recipient_addr = tester.accounts[recipient_index]
+            if params_list[0] == '':
+                self.c.tx(sender=sender_privkey, to=recipient_addr, value=self.TX_VALUE)
+            else:
+                shard_id = int(params_list[0])
+                self.c.tx(
+                    sender=sender_privkey,
+                    to=recipient_addr,
+                    value=self.TX_VALUE,
+                    shard_id=shard_id,
+                )
+        elif len(params_list) == 4 and params_list[0] == '':
+            shard_id = int(params_list[1])
+            sender_index, recipient_index = int(params_list[2]), int(params_list[3])
+            sender_privkey = tester.keys[sender_index]
+            recipient_addr = tester.accounts[recipient_index]
+            startgas = 200000
+            data = b''
+            receipt_id = self.valmgr.tx_to_shard(
+                recipient_addr,
+                shard_id,
+                startgas,
+                tester.GASPRICE,
+                data,
+                sender=sender_privkey,
+                value=self.TX_VALUE,
+            )
+            tx = Transaction(0, tester.GASPRICE, startgas, recipient_addr, self.TX_VALUE, data)
+            tx.v, tx.r, tx.s = 1, receipt_id, 0
+            self.c.direct_tx(tx, shard_id=shard_id)
+        else:
+            raise ValueError("Invalid parameters")
 
 
     def deposit_validator(self, param_str):

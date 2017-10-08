@@ -1,3 +1,5 @@
+from ethereum import utils
+
 from sharding.testing_lang import TestingLang
 from sharding.tools import tester
 
@@ -84,3 +86,24 @@ def test_testing_lang_shard_head():
     assert head_hash_11 == chain.shards[0].head.header.parent_collation_hash
     assert tl.shard_head[0]['hash'] == chain.shards[0].head.header.hash
     assert tl.shard_head[0]['parent_collation_hash'] == head_hash_11
+
+
+def test_testing_lang_mk_transaction():
+    tl = TestingLang()
+    cmd = """
+        D0
+        C0
+        B1
+    """
+    tl.execute(cmd)
+    prev_balance = tl.c.head_state.get_balance(tester.accounts[1])
+    tl.execute("T,0,1")
+    assert (tl.c.head_state.get_balance(tester.accounts[1]) - prev_balance) == utils.denoms.gwei
+    prev_balance = tl.c.shard_head_state[0].get_balance(tester.accounts[2])
+    tl.execute("T0,1,2")
+    assert (tl.c.shard_head_state[0].get_balance(tester.accounts[2]) - prev_balance) == \
+           utils.denoms.gwei
+    prev_balance = tl.c.shard_head_state[0].get_balance(tester.accounts[2])
+    tl.execute("T,0,1,2")
+    assert tl.c.shard_head_state[0].get_balance(tester.accounts[2]) == \
+           (prev_balance + utils.denoms.gwei - 21000 * tester.GASPRICE)
