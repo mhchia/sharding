@@ -113,11 +113,19 @@ class TestingLang(object):
         validator_index = self.current_validators[collator_valcode_addr]
         collator_privkey = tester.keys[validator_index]
 
+        expected_period_number = self.c.chain.get_expected_period_number()
+
         if not self.c.chain.has_shard(shard_id):
             self.c.add_test_shard(shard_id)
             self.collation_map[shard_id] = []
             self.collation_map[shard_id].append(
-                [{'hash': b'\x00' * 32, 'parent_collation_hash': None}],
+                [
+                    {
+                        'hash': b'\x00' * 32,
+                        'parent_collation_hash': None,
+                        'period': expected_period_number,
+                    },
+                ]
             )
 
         shard_collation_map = self.collation_map[shard_id]
@@ -196,6 +204,7 @@ class TestingLang(object):
         collation_obj = {
             'hash': collation.header.hash,
             'parent_collation_hash': parent_collation_hash,
+            'period': expected_period_number,
         }
         layer_at_height.insert(insert_index, collation_obj)
 
