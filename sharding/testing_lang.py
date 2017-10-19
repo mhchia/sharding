@@ -5,7 +5,7 @@ from ethereum import utils
 from ethereum.slogging import get_logger
 from ethereum.transactions import Transaction
 
-from sharding import used_receipt_store_utils, validator_manager_utils
+from sharding import contract_utils, used_receipt_store_utils, validator_manager_utils
 from sharding.collation import Collation
 from sharding.tools import tester
 
@@ -158,7 +158,6 @@ class TestingLang(object):
             self.c.chain.shards[shard_id].add_collation(
                 collation,
                 period_start_prevblock,
-                self.c.chain.handle_ignored_collation,
             )
             tx = validator_manager_utils.call_tx_add_header(
                 self.c.head_state,
@@ -262,7 +261,7 @@ class TestingLang(object):
         # result = self.c.sharding_withdraw(tester.keys[validator_index], validator_index)
         result = self.valmgr.withdraw(
             validator_index,
-            validator_manager_utils.sign(
+            contract_utils.sign(
                 validator_manager_utils.WITHDRAW_HASH,
                 tester.keys[validator_index]
             )

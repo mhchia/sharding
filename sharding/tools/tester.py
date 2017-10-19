@@ -356,7 +356,7 @@ class Chain(object):
             expected_period_number = self.chain.get_expected_period_number()
         if parent_collation_hash is None:
             parent_collation_hash = self.chain.shards[shard_id].head_hash
-        period_start_prevhash = self._get_period_start_prevhash(expected_period_number)
+        period_start_prevhash = self.get_period_start_prevhash(expected_period_number)
         period_start_prevblock = self.chain.get_block(period_start_prevhash)
         assert period_start_prevblock is not None
         self.collation[shard_id].header.expected_period_number = expected_period_number
