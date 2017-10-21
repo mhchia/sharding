@@ -124,6 +124,8 @@ class TestingLang(object):
                         'hash': b'\x00' * 32,
                         'parent_collation_hash': None,
                         'period': expected_period_number,
+                        'period_start_prevhash': b'\x00' * 32,
+                        'period_start_block_height': 0,
                     },
                 ]
             )
@@ -200,10 +202,13 @@ class TestingLang(object):
             layer_at_height = []
             shard_collation_map.append(layer_at_height)
 
+        block_number = self.c.chain.env.config['PERIOD_LENGTH'] * expected_period_number - 1
         collation_obj = {
             'hash': collation.header.hash,
             'parent_collation_hash': parent_collation_hash,
-            'period': expected_period_number,
+            'period': collation.expected_period_number,
+            'period_start_prevhash': collation.period_start_prevhash,
+            'period_start_block_height': block_number,
         }
         layer_at_height.insert(insert_index, collation_obj)
 

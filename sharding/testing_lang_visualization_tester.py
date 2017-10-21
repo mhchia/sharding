@@ -22,12 +22,12 @@ cmds = """
     B5
     C0,2,1
 """
-cmds = """
-    D0
-    B25
-    C0
-    B5
-"""
+# cmds = """
+#     D0
+#     B25
+#     C0
+#     B5
+# """
 tl.execute(cmds)
 expected_period_number = tl.c.chain.get_expected_period_number()
 
@@ -61,24 +61,79 @@ g = gv.Digraph('G', filename='image')
 # g.view()
 # exit(1)
 
+
+LEN_HASH = 8
+NUM_TX_IN_BLOCK = 3
+EMPTY_TX = '&nbsp;' * 4
+
+def draw_struct(g, prev_hash, current_hash, height, txs, struct_type='block'):
+    assert len(txs) <= NUM_TX_IN_BLOCK
+    # if len(prev_hash) > LEN_HASH:
+    #     prev_hash = prev_hash[:LEN_HASH]
+    # if len(current_hash) > LEN_HASH:
+    #     current_hash = current_hash[:LEN_HASH]
+    assert isinstance(height, int)
+    hash_label = '<hash> {} {}:\n {}'.format(struct_type, height, current_hash)
+    prev_label = '<prev> prev: \n {}'.format(prev_hash)
+    txs_label = '{'
+    for i in range(NUM_TX_IN_BLOCK):
+        txs_label += '<tx{}> '.format(i)
+        if i >= len(txs):
+            txs_label += EMPTY_TX
+        else:
+            txs_label += txs[i]
+        if i != NUM_TX_IN_BLOCK - 1:
+            txs_label += ' | '
+    txs_label += '}'
+    label = '{ %s | %s | %s }' % (hash_label, txs_label, prev_label)
+    shape = 'Mrecord' if struct_type == 'collation' else 'record'
+    g.node(current_hash, label, shape=shape)
+    # if height != 0:
+    g.edge(current_hash, prev_hash)
+
+
 # draw period
 layers = {}
-prev = "period"
-g.node(prev, label=prev, shape='box')
-layers[prev] = []
-for i in range(expected_period_number + 1):
-    name = str(i)
-    g.edge(name, prev)
-    g.node(name, label=name, shape='box')
-    layers[name] = []
-    prev = name
+mainchain_caption = "mainchain"
+g.node(mainchain_caption, shape='none')
+layers[mainchain_caption] = []
+# for i in range(expected_period_number + 1):
+#     name = str(i)
+#     g.edge(name, prev)
+#     g.node(name, label=name, shape='box')
+#     layers[name] = []
+#     prev = name
+
+chain = tl.get_tester_chain().chain
+current_block = chain.head
+
+while current_block is not None:
+    # draw head
+    prev_block = chain.get_parent(current_block)
+    if prev_block is None:
+        prev_block_hash = mainchain_caption
+    else:
+        prev_block_hash = prev_block.header.hash.hex()[:LEN_HASH]
+    current_block_hash = current_block.header.hash.hex()[:LEN_HASH]
+    # print("!@# {}: {}".format(current_block.header.number, current_block_hash))
+    draw_struct(
+        g,
+        prev_block_hash,
+        current_block_hash,
+        current_block.header.number,
+        [],
+    )
+    layers[current_block_hash] = []
+    current_block = prev_block
+
 
 # draw collations per shard
 genesis_hash = b'\x00' * 32
 prefix_length = 8
 for shard_id, collation_map in tl.collation_map.items():
-    first_name = "shard_" + str(shard_id)
-    layers["period"].append(first_name)
+    shardchain_caption = "shard_" + str(shard_id)
+    g.node(shardchain_caption, shape='none')
+    layers[mainchain_caption].append(shardchain_caption)
     for i in range(len(collation_map)):
         layer = collation_map[i]
         for j in range(len(layer)):
@@ -87,16 +142,18 @@ for shard_id, collation_map in tl.collation_map.items():
                 continue
             else:
                 label = "C{},{},{}\n\n".format(shard_id, i, j)
-                name = collation['hash'].hex()[:prefix_length]
+                name = collation['hash'].hex()[:LEN_HASH]
                 label += name
             prev_name = collation['parent_collation_hash']
             if prev_name == None or prev_name == genesis_hash:
-                prev_name = first_name
+                prev_name = shardchain_caption
             else:
-                prev_name = prev_name.hex()[:prefix_length]
-            layers[str(collation['period'])].append(name)
-            g.edge(name, prev_name)
-            g.node(name, label=label)#, shape='Mrecord')
+                prev_name = prev_name.hex()[:LEN_HASH]
+            period_start_prevhash = collation['period_start_prevhash'].hex()[:LEN_HASH]
+            layers[period_start_prevhash].append(name)
+            # g.edge(name, prev_name)
+            # g.node(name, label=label)#, shape='Mrecord')
+            draw_struct(g, prev_name, name, i, [], struct_type='collation')
 
 def add_rank_same(g, node_list):
     rank_same_str = "\t{rank=same; "
