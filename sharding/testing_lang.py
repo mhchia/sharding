@@ -38,6 +38,7 @@ class TestingLang(object):
     LABEL_TRANSACTION = 'T'
     LABEL_WITHDRAW = 'W'
     LABEL_ADD_HEADER = 'AH'
+    LEN_HASH = 8
     TX_VALUE = utils.denoms.gwei
 
     def __init__(self, parser=Parser()):
@@ -125,6 +126,11 @@ class TestingLang(object):
         return cmd, params
 
 
+    def _get_shorten_hash(self, hash_bytes32):
+        # TODO: work around
+        return hash_bytes32.hex()[:self.LEN_HASH]
+
+
     def _add_txs(self, node):
         """node can be either a block or a collation
         """
@@ -137,19 +143,32 @@ class TestingLang(object):
                 tx_info = self.made_txs[tx.hash]
                 tx_label = tx_info['label']
                 self.tx_label_node_map[tx_label] = node.header.hash
-                # prev_label = self.get_prev_label(tx_label)
-                # prev_label_node_hash = self.tx_label_node_map[prev_label]
+                print("!@# label, tx_label: {}, node_hash: {}".format(tx_label, node.header.hash))
+                prev_label = self.get_prev_label(tx_label)
+                if prev_label is not None:
+                    prev_label_node_hash = self.tx_label_node_map[prev_label]
+                    print(
+                        "!@# label, prev_label: {}, prev_node_hash: {}".format(
+                            prev_label,
+                            prev_label_node_hash,
+                        )
+                    )
+                    index = self._get_shorten_hash(node.header.hash) + ':' + tx_label
+                    value = self._get_shorten_hash(prev_label_node_hash) + ':' + prev_label
+                    self.node_label_map[index] = value
 
 
     def get_prev_label(self, label):
-        prev_cmd, param = self._divide_label(label)
-        if prev_cmd == self.LABEL_DEPOSIT:
-            cmd = self.LABEL_WITHDRAW
-        elif prev_cmd == self.LABEL_RECEIPT_CONSUMING:
-            cmd = self.LABEL_RECEIPT
-            receipt_id = int(param)
-            param = str(self.receipts[receipt_id]['shard_id'])
-        return cmd + param
+        cmd, param = self._divide_label(label)
+        if cmd == self.LABEL_WITHDRAW:
+            prev_cmd = self.LABEL_DEPOSIT
+        elif cmd == self.LABEL_RECEIPT_CONSUMING:
+            prev_cmd = self.LABEL_RECEIPT
+            # receipt_id = int(param)
+            # param = str(self.receipts[receipt_id]['shard_id'])
+        else:
+            return None
+        return prev_cmd + param
 
 
     def _mine_and_update_head_collation(self, num_of_blocks):
@@ -256,7 +275,7 @@ class TestingLang(object):
             )
             self.c.direct_tx(tx)
         tx = self.c.block.transactions[-1]
-        tx_label = self.LABEL_ADD_HEADER
+        tx_label = self.LABEL_ADD_HEADER + str(parent_height + 1)
         self._add_made_tx(tx, tx_label)
 
         insert_index = 0
@@ -295,6 +314,9 @@ class TestingLang(object):
                 'label': self.made_txs[tx.hash]['label']
             })
             txs.append(tx.hash)
+
+        self._add_txs(collation)
+
         collation_obj = {
             'hash': collation.header.hash,
             'parent_collation_hash': parent_collation_hash,
