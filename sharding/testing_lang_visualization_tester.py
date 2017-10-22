@@ -28,42 +28,16 @@ cmds = """
     C0
     B5
     R0
+    R0
     B1
     RC0
+    C0
+    B1
 """
 tl.execute(cmds)
 expected_period_number = tl.c.chain.get_expected_period_number()
 
 g = gv.Digraph('G', filename='image')
-
-# # g = gv.Digraph('G', filename='image', engine='fdp')
-
-# # g.graph_attr['rankdir'] = 'TB'
-# # g.attr(compound='true')
-
-# # with g.subgraph(name='b0') as s:
-# #     # s.attr(rank='same')
-# #     # s.edges(['12', '23'])
-# #     s.edge('R0', 'R1')
-# # with g.subgraph(name='clustera0') as a:
-# #     a.edge('a', 'b')
-
-# # with g.subgraph(name='clusterb0') as b:
-# #     b.edge('d', 'f')
-# with g.subgraph(name='clusterA') as s:
-#     s.node('R0')
-# with g.subgraph(name='clusterB') as s:
-#     s.node('C0')
-# g.edge('clusterB', 'clusterA') # works in engine='fdp'
-# # g.edge('clusterB1', 'clusterB0', ltail='clusterB1', lhead='clusterB0')
-
-# #g.edge('C0', 'R0')
-
-# print(g.source)
-
-# g.view()
-# exit(1)
-
 
 LEN_HASH = 8
 NUM_TX_IN_BLOCK = 3
@@ -88,7 +62,8 @@ def draw_struct(g, prev_hash, current_hash, height, txs, struct_type='block'):
         if i != NUM_TX_IN_BLOCK - 1:
             txs_label += ' | '
     txs_label += '}'
-    label = '{ %s | %s | %s }' % (hash_label, txs_label, prev_label)
+    # label = '{ %s | %s | %s }' % (hash_label, txs_label, prev_label)
+    label = '{ %s | %s }' % (hash_label, txs_label)
     shape = 'Mrecord' if struct_type == 'collation' else 'record'
     g.node(current_hash, label, shape=shape)
     # if height != 0:
@@ -119,12 +94,13 @@ while current_block is not None:
         prev_block_hash = prev_block.header.hash.hex()[:LEN_HASH]
     current_block_hash = current_block.header.hash.hex()[:LEN_HASH]
     # print("!@# {}: {}".format(current_block.header.number, current_block_hash))
+    tx_labels = tl.get_tx_labels_from_block(current_block.header.hash)
     draw_struct(
         g,
         prev_block_hash,
         current_block_hash,
         current_block.header.number,
-        [],
+        tx_labels,
     )
     layers[current_block_hash] = []
     current_block = prev_block
@@ -156,7 +132,8 @@ for shard_id, collation_map in tl.collation_map.items():
             layers[period_start_prevhash].append(name)
             # g.edge(name, prev_name)
             # g.node(name, label=label)#, shape='Mrecord')
-            draw_struct(g, prev_name, name, i, [], struct_type='collation')
+            tx_labels = [tx_info['label'] for tx_info in collation['txs']]
+            draw_struct(g, prev_name, name, i, tx_labels, struct_type='collation')
 
 def add_rank_same(g, node_list):
     rank_same_str = "\t{rank=same; "
@@ -171,5 +148,4 @@ for period, labels in layers.items():
 
 print(g.source)
 print("len(made_txs): ", len(tl.made_txs))
-print(tl.receipts)
 g.view()

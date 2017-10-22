@@ -29,6 +29,16 @@ class Parser(object):
 
 
 class TestingLang(object):
+
+    LABEL_BLOCK = 'B'
+    LABEL_COLLATION = 'C'
+    LABEL_DEPOSIT = 'D'
+    LABEL_RECEIPT = 'R'
+    LABEL_RECEIPT_CONSUMING = 'RC'
+    LABEL_TRANSACTION = 'T'
+    LABEL_WITHDRAW = 'W'
+    LABEL_ADD_HEADER = 'AH'
+
     def __init__(self, parser=Parser()):
         self.parser = parser
         self.c = tester.Chain(env='sharding', deploy_sharding_contracts=True)
@@ -39,22 +49,23 @@ class TestingLang(object):
         )
         self.TX_VALUE = utils.denoms.gwei
         self.collation_map = {}
+        # self.collation_hash_index_map = {}
         self.shard_head = {}
         self.current_validators = {}
-        # 'tx_hash' -> {'confirmed': bool, 'type': {'R'|'RC'|'D'|'W'|'TX', 'tx': tx}
+        # 'tx_hash' -> {'confirmed': bool, 'label': {'R'|'RC'|'D'|'W'|'TX', 'tx': tx}
         self.made_txs = {}
         # [{'shard_id', 'startgas', 'gasprice', 'to', 'value', 'data'}, ...]
         self.receipts = []
         # 'block_hash' -> ['tx_hash1', 'tx_hash2', ...]
         self.block_txs = {}
         self.handlers = {}
-        self.handlers['B'] = self.mine_block
-        self.handlers['C'] = self.collate
-        self.handlers['D'] = self.deposit_validator
-        self.handlers['R'] = self.mk_receipt
-        self.handlers['RC'] = self.mk_receipt_consuming_transaction
-        self.handlers['T'] = self.mk_transaction
-        self.handlers['W'] = self.withdraw_validator
+        self.handlers[self.LABEL_BLOCK] = self.mine_block
+        self.handlers[self.LABEL_COLLATION] = self.collate
+        self.handlers[self.LABEL_DEPOSIT] = self.deposit_validator
+        self.handlers[self.LABEL_RECEIPT] = self.mk_receipt
+        self.handlers[self.LABEL_RECEIPT_CONSUMING] = self.mk_receipt_consuming_transaction
+        self.handlers[self.LABEL_TRANSACTION] = self.mk_transaction
+        self.handlers[self.LABEL_WITHDRAW] = self.withdraw_validator
 
 
     def execute(self, test_string=""):
@@ -78,13 +89,34 @@ class TestingLang(object):
         return self.c
 
 
+    def get_tx_labels_from_block(self, block_hash):
+        labels = []
+        if block_hash not in self.block_txs.keys():
+            return labels
+        for tx_hash in self.block_txs[block_hash]:
+            if tx_hash in self.made_txs.keys():
+                tx_info = self.made_txs[tx_hash]
+                labels.append(tx_info['label'])
+        return labels
+
+
+    # def get_tx_labels_from_collation(self, shard_id, collation_hash):
+    #     collation_info = self.collation_map[]
+
+
     def update_collations(self):
         for value in self.c.chain.shard_id_list:
             self.c.update_collation(value)
 
 
+    def _add_block_txs(self, block):
+        self.block_txs[block.header.hash] = [tx.hash for tx in block.transactions]
+
+
     def _mine_and_update_head_collation(self, num_of_blocks):
-        self.c.mine(num_of_blocks)
+        for i in range(num_of_blocks):
+            block = self.c.mine(1)
+            self._add_block_txs(block)
         self.update_collations()
 
 
@@ -133,6 +165,7 @@ class TestingLang(object):
                         'period': expected_period_number,
                         'period_start_prevhash': b'\x00' * 32,
                         'period_start_block_height': 0,
+                        'txs': [],
                     },
                 ]
             )
@@ -140,7 +173,8 @@ class TestingLang(object):
         shard_collation_map = self.collation_map[shard_id]
         if len_params_list == 1:
             expected_period_number = self.c.chain.get_expected_period_number()
-            collation = Collation(self.c.collate(shard_id, collator_privkey))
+            collation = self.c.collate(shard_id, collator_privkey)
+            print("!@# collate ", collation.transactions)
             self.c.set_collation(
                 shard_id,
                 expected_period_number=expected_period_number,
@@ -183,6 +217,9 @@ class TestingLang(object):
                 rlp.encode(collation.header),
             )
             self.c.direct_tx(tx)
+        tx = self.c.block.transactions[-1]
+        tx_label = self.LABEL_ADD_HEADER
+        self._add_made_tx(tx, tx_label)
 
         insert_index = 0
         try:
@@ -210,12 +247,21 @@ class TestingLang(object):
             shard_collation_map.append(layer_at_height)
 
         block_number = self.c.chain.env.config['PERIOD_LENGTH'] * expected_period_number - 1
+        txs = []
+        for tx in collation.transactions:
+            if tx.hash not in self.made_txs.keys():
+                continue
+            txs.append({
+                'tx_hash': tx.hash,
+                'label': self.made_txs[tx.hash]['label']
+            })
         collation_obj = {
             'hash': collation.header.hash,
             'parent_collation_hash': parent_collation_hash,
             'period': collation.expected_period_number,
             'period_start_prevhash': collation.period_start_prevhash,
             'period_start_block_height': block_number,
+            'txs': txs,
         }
         layer_at_height.insert(insert_index, collation_obj)
 
@@ -224,13 +270,13 @@ class TestingLang(object):
             self.shard_head[shard_id] = collation_obj
 
 
-    def _add_made_tx(self, tx, tx_type, shard_id=None):
+    def _add_made_tx(self, tx, label, shard_id=None):
         """shard_id=None indicates it's in mainchain
         """
         self.made_txs[tx.hash] = {
             'tx': tx,
             'confirmed': False,
-            'type': tx_type,
+            'label': label,
             'shard_id': shard_id,
         }
 
@@ -263,8 +309,8 @@ class TestingLang(object):
             value=value,
         )
         tx = self.c.block.transactions[-1]
-        tx_type = 'R{}'.format(receipt_id)
-        self._add_made_tx(tx, tx_type, shard_id=None)
+        tx_label = '{}{}'.format(self.LABEL_RECEIPT, receipt_id)
+        self._add_made_tx(tx, tx_label, shard_id=None)
         self.receipts.append({
             'shard_id': shard_id,
             'startgas': startgas,
@@ -295,8 +341,8 @@ class TestingLang(object):
         )
         tx.v, tx.r, tx.s = 1, receipt_id, 0
         self.c.direct_tx(tx, shard_id=receipt['shard_id'])
-        tx_type = "RC{}".format(receipt_id)
-        self._add_made_tx(tx, tx_type, shard_id=receipt['shard_id'])
+        tx_label = "{}{}".format(self.LABEL_RECEIPT_CONSUMING, receipt_id)
+        self._add_made_tx(tx, tx_label, shard_id=receipt['shard_id'])
         self.receipts[receipt_id]['consumed'] = True
 
 
@@ -352,8 +398,8 @@ class TestingLang(object):
         self.c.sharding_deposit(privkey, valcode_addr)
         self.current_validators[valcode_addr] = validator_index
         tx = self.c.block.transactions[-1]
-        tx_type = 'D{}'.format(validator_index)
-        self._add_made_tx(tx, tx_type)
+        tx_label = '{}{}'.format(self.LABEL_DEPOSIT, validator_index)
+        self._add_made_tx(tx, tx_label)
 
 
     def withdraw_validator(self, param_str):
@@ -370,8 +416,8 @@ class TestingLang(object):
         if not result:
             raise ValueError("Withdraw failed")
         tx = self.c.block.transactions[-1]
-        tx_type = 'W{}'.format(validator_index)
-        self._add_made_tx(tx, tx_type)
+        tx_label = '{}{}'.format(self.LABEL_WITHDRAW, validator_index)
+        self._add_made_tx(tx, tx_label)
 
 
     def print_collations_level_order(self, shard_id):
