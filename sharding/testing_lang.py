@@ -4,6 +4,7 @@ import rlp
 from ethereum import utils
 from ethereum.slogging import get_logger
 from ethereum.transactions import Transaction
+from ethereum.transaction_queue import TransactionQueue
 
 from sharding import contract_utils, used_receipt_store_utils, validator_manager_utils
 from sharding.collation import Collation
@@ -229,14 +230,7 @@ class TestingLang(object):
 
         shard_collation_map = self.collation_map[shard_id]
         if len_params_list == 1:
-            expected_period_number = self.c.chain.get_expected_period_number()
             collation = self.c.collate(shard_id, collator_privkey)
-            print("!@# collate ", collation.transactions)
-            self.c.set_collation(
-                shard_id,
-                expected_period_number=expected_period_number,
-                parent_collation_hash=collation.header.hash,
-            )
             parent_collation_hash = collation.header.parent_collation_hash
             collation_score = validator_manager_utils.call_valmgr(
                 self.c.head_state,
@@ -255,11 +249,14 @@ class TestingLang(object):
             if (parent_height < 0) or (parent_kth < 0):
                 raise ValueError("Invalid shard_id")
             parent_collation_hash = shard_collation_map[parent_height][parent_kth]['hash']
+            txqueue = TransactionQueue()
+            for tx in self.c.collation[shard_id].transactions:
+                txqueue.add_transaction(tx)
             collation = self.c.generate_collation(
                 shard_id=shard_id,
                 coinbase=utils.privtoaddr(collator_privkey),
                 key=collator_privkey,
-                txqueue=None,
+                txqueue=txqueue,
                 parent_collation_hash=parent_collation_hash,
             )
             period_start_prevblock = self.c.chain.get_block(collation.header.period_start_prevhash)
@@ -330,6 +327,12 @@ class TestingLang(object):
         # if it is the longest chain, set it as the shard head
         if len(layer_at_height) == 1:
             self.shard_head[shard_id] = collation_obj
+
+        self.c.set_collation(
+            shard_id,
+            expected_period_number=expected_period_number,
+            parent_collation_hash=self.shard_head[shard_id]['hash'],
+        )
 
 
     def _add_made_tx(self, tx, label, shard_id=None):
