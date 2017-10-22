@@ -49,7 +49,7 @@ tl.execute(cmds)
 expected_period_number = tl.c.chain.get_expected_period_number()
 
 g = gv.Digraph('G', filename='image')
-g.attr(splines='polyline')
+# g.attr(splines='polyline')
 # g.attr(nodesep='2')
 # g.attr(ranksep='2.0')
 
@@ -81,16 +81,14 @@ def draw_struct(g, prev_hash, current_hash, height, txs, struct_type='block'):
     label = '{ %s | %s }' % (hash_label, txs_label)
     shape = 'Mrecord' if struct_type == 'collation' else 'record'
     g.node(current_hash, label, shape=shape)
-    # if height != 0:
-    weight = '2' if struct_type == 'block' else '2'
-    g.edge(current_hash, prev_hash, weight=weight)
+    g.edge(current_hash, prev_hash) # , weight=weight)
 
     # draw event edges
     for label in txs:
         label_index = current_hash + ':' + label
         try:
             prev_label_index = tl.node_label_map[label_index]
-            g.edge(label_index, prev_label_index, style='dashed', weight='0')
+            g.edge(label_index, prev_label_index, style='dashed', constraint='false')
         except:
             pass
 
@@ -98,6 +96,10 @@ def draw_struct(g, prev_hash, current_hash, height, txs, struct_type='block'):
 # draw period
 layers = {}
 mainchain_caption = "mainchain"
+chain = tl.get_tester_chain().chain
+current_block = chain.head
+min_hash = current_block.header.hash.hex()[:LEN_HASH]
+
 with g.subgraph(name=mainchain_caption) as s:
     s.node(mainchain_caption, shape='none')
     layers[mainchain_caption] = []
@@ -107,9 +109,6 @@ with g.subgraph(name=mainchain_caption) as s:
     #     g.node(name, label=name, shape='box')
     #     layers[name] = []
     #     prev = name
-
-    chain = tl.get_tester_chain().chain
-    current_block = chain.head
 
     while current_block is not None:
         # draw head
@@ -162,8 +161,8 @@ for shard_id, collation_map in tl.collation_map.items():
                 tx_labels = tl.get_tx_labels_from_node(collation['hash'])
                 draw_struct(s, prev_name, name, i, tx_labels, struct_type='collation')
 
-def add_rank_same(g, node_list):
-    rank_same_str = "\t{rank=same; "
+def add_rank(g, node_list, rank='same'):
+    rank_same_str = "\t{rank=%s; " % rank
     for node in node_list:
         rank_same_str += (g._quote(node) + '; ')
     rank_same_str += '}'
@@ -171,7 +170,12 @@ def add_rank_same(g, node_list):
 
 # set rank
 for period, labels in layers.items():
-    add_rank_same(g, [period] + labels)
+    rank = 'same'
+    if period == min_hash:
+        rank = 'source'
+    elif period == mainchain_caption:
+        rank = 'max'
+    add_rank(g, [period] + labels, rank)
 
 print(g.source)
 print("len(made_txs): ", len(tl.made_txs))
