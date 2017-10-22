@@ -22,12 +22,15 @@ cmds = """
     B5
     C0,2,1
 """
-# cmds = """
-#     D0
-#     B25
-#     C0
-#     B5
-# """
+cmds = """
+    D0
+    B25
+    C0
+    B5
+    R0
+    B1
+    RC0
+"""
 tl.execute(cmds)
 expected_period_number = tl.c.chain.get_expected_period_number()
 
@@ -167,4 +170,6 @@ for period, labels in layers.items():
     add_rank_same(g, [period] + labels)
 
 print(g.source)
+print("len(made_txs): ", len(tl.made_txs))
+print(tl.receipts)
 g.view()

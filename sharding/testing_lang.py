@@ -38,15 +38,22 @@ class TestingLang(object):
             validator_manager_utils.get_valmgr_addr(),
         )
         self.TX_VALUE = utils.denoms.gwei
-        self.c.mine(5)
         self.collation_map = {}
         self.shard_head = {}
         self.current_validators = {}
+        # 'tx_hash' -> {'confirmed': bool, 'type': {'R'|'RC'|'D'|'W'|'TX', 'tx': tx}
+        self.made_txs = {}
+        # [{'shard_id', 'startgas', 'gasprice', 'to', 'value', 'data'}, ...]
+        self.receipts = []
+        # 'block_hash' -> ['tx_hash1', 'tx_hash2', ...]
+        self.block_txs = {}
         self.handlers = {}
         self.handlers['B'] = self.mine_block
         self.handlers['C'] = self.collate
-        self.handlers['T'] = self.mk_transaction
         self.handlers['D'] = self.deposit_validator
+        self.handlers['R'] = self.mk_receipt
+        self.handlers['RC'] = self.mk_receipt_consuming_transaction
+        self.handlers['T'] = self.mk_transaction
         self.handlers['W'] = self.withdraw_validator
 
 
@@ -217,6 +224,82 @@ class TestingLang(object):
             self.shard_head[shard_id] = collation_obj
 
 
+    def _add_made_tx(self, tx, tx_type, shard_id=None):
+        """shard_id=None indicates it's in mainchain
+        """
+        self.made_txs[tx.hash] = {
+            'tx': tx,
+            'confirmed': False,
+            'type': tx_type,
+            'shard_id': shard_id,
+        }
+
+
+    def _mark_tx_confirmed(self, tx_hash):
+        self.made_txs[tx_hash]['confirmed'] = True
+
+
+    def mk_receipt(self, param_str):
+        """R0: make a receipt in shard 0
+           default sender and receiver are the same, a0
+        """
+        print("!@# mk_receipt: ", param_str)
+        params_list = param_str.split(',')
+        shard_id = int(params_list[0])
+        sender_index = recipient_index = 0
+        sender_privkey = tester.keys[sender_index]
+        to = tester.accounts[recipient_index]
+        startgas = 200000
+        gasprice = tester.GASPRICE
+        value = self.TX_VALUE
+        data = b''
+        receipt_id = self.valmgr.tx_to_shard(
+            to,
+            shard_id,
+            startgas,
+            gasprice,
+            data,
+            sender=sender_privkey,
+            value=value,
+        )
+        tx = self.c.block.transactions[-1]
+        tx_type = 'R{}'.format(receipt_id)
+        self._add_made_tx(tx, tx_type, shard_id=None)
+        self.receipts.append({
+            'shard_id': shard_id,
+            'startgas': startgas,
+            'gasprice': gasprice,
+            'to': to,
+            'value': value,
+            'data': data,
+            'consumed': False,
+        })
+
+
+    def mk_receipt_consuming_transaction(self, param_str):
+        """RC0: make a receipt-consuming tx which consumes the receipt 0
+        """
+        print("!@# mk_rctx: ", param_str)
+        params_list = param_str.split(',')
+        receipt_id = int(params_list[0])
+        sender_index = recipient_index = 0
+        sender_privkey = tester.keys[sender_index]
+        receipt = self.receipts[receipt_id]
+        tx = Transaction(
+            0,
+            receipt['gasprice'],
+            receipt['startgas'],
+            receipt['to'],
+            receipt['value'],
+            receipt['data'],
+        )
+        tx.v, tx.r, tx.s = 1, receipt_id, 0
+        self.c.direct_tx(tx, shard_id=receipt['shard_id'])
+        tx_type = "RC{}".format(receipt_id)
+        self._add_made_tx(tx, tx_type, shard_id=receipt['shard_id'])
+        self.receipts[receipt_id]['consumed'] = True
+
+
     def mk_transaction(self, param_str):
         """1) T,0,1: send ether from v0 to v1 in mainchain
            2) T0,1,2: send ether from v1 to v2 in shard 0
@@ -237,6 +320,7 @@ class TestingLang(object):
                     value=self.TX_VALUE,
                     shard_id=shard_id,
                 )
+        # make a receipt and consume it right away
         elif len(params_list) == 4 and params_list[0] == '':
             shard_id = int(params_list[1])
             sender_index, recipient_index = int(params_list[2]), int(params_list[3])
@@ -267,6 +351,9 @@ class TestingLang(object):
         ret_addr = utils.privtoaddr(utils.sha3("ret_addr"))
         self.c.sharding_deposit(privkey, valcode_addr)
         self.current_validators[valcode_addr] = validator_index
+        tx = self.c.block.transactions[-1]
+        tx_type = 'D{}'.format(validator_index)
+        self._add_made_tx(tx, tx_type)
 
 
     def withdraw_validator(self, param_str):
@@ -282,6 +369,9 @@ class TestingLang(object):
         )
         if not result:
             raise ValueError("Withdraw failed")
+        tx = self.c.block.transactions[-1]
+        tx_type = 'W{}'.format(validator_index)
+        self._add_made_tx(tx, tx_type)
 
 
     def print_collations_level_order(self, shard_id):
