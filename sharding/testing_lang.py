@@ -38,6 +38,7 @@ class TestingLang(object):
     LABEL_TRANSACTION = 'T'
     LABEL_WITHDRAW = 'W'
     LABEL_ADD_HEADER = 'AH'
+    TX_VALUE = utils.denoms.gwei
 
     def __init__(self, parser=Parser()):
         self.parser = parser
@@ -47,17 +48,22 @@ class TestingLang(object):
             validator_manager_utils.get_valmgr_ct(),
             validator_manager_utils.get_valmgr_addr(),
         )
-        self.TX_VALUE = utils.denoms.gwei
+
         self.collation_map = {}
         # self.collation_hash_index_map = {}
         self.shard_head = {}
         self.current_validators = {}
-        # 'tx_hash' -> {'confirmed': bool, 'label': {'R'|'RC'|'D'|'W'|'TX', 'tx': tx}
+        # 'tx_hash' -> {'confirmed': 'node_hash', 'label': {'R'|'RC'|'D'|'W'|'TX', 'tx': tx}
         self.made_txs = {}
         # [{'shard_id', 'startgas', 'gasprice', 'to', 'value', 'data'}, ...]
         self.receipts = []
-        # 'block_hash' -> ['tx_hash1', 'tx_hash2', ...]
-        self.block_txs = {}
+        # 'hash' -> ['tx_hash1', 'tx_hash2', ...]
+        self.txs = {}
+        # 'label' -> 'node_name'
+        self.tx_label_node_map = {}
+        # 'hash:label' -> previous 'hash:label'
+        self.node_label_map = {}
+
         self.handlers = {}
         self.handlers[self.LABEL_BLOCK] = self.mine_block
         self.handlers[self.LABEL_COLLATION] = self.collate
@@ -89,11 +95,12 @@ class TestingLang(object):
         return self.c
 
 
-    def get_tx_labels_from_block(self, block_hash):
+    # should be removed and add a block_tx_labels map
+    def get_tx_labels_from_node(self, node_hash):
         labels = []
-        if block_hash not in self.block_txs.keys():
+        if node_hash not in self.txs.keys():
             return labels
-        for tx_hash in self.block_txs[block_hash]:
+        for tx_hash in self.txs[node_hash]:
             if tx_hash in self.made_txs.keys():
                 tx_info = self.made_txs[tx_hash]
                 labels.append(tx_info['label'])
@@ -109,14 +116,46 @@ class TestingLang(object):
             self.c.update_collation(value)
 
 
-    def _add_block_txs(self, block):
-        self.block_txs[block.header.hash] = [tx.hash for tx in block.transactions]
+    def _divide_label(self, label):
+        comment_pat = re.compile(r"#.*$")
+        cmd_params_pat = re.compile(r"([A-Za-z]+)([0-9,]+)")
+        cmd, params = cmd_params_pat.match(label).groups()
+        if (cmd + params) != label:
+            raise ValueError("Bad token")
+        return cmd, params
+
+
+    def _add_txs(self, node):
+        """node can be either a block or a collation
+        """
+        node_hash = node.header.hash
+        self.txs[node_hash] = []
+        for tx in node.transactions:
+            self.txs[node_hash].append(tx.hash)
+            # TODO: it seems all txs events should be processed here
+            if tx.hash in self.made_txs.keys():
+                tx_info = self.made_txs[tx.hash]
+                tx_label = tx_info['label']
+                self.tx_label_node_map[tx_label] = node.header.hash
+                # prev_label = self.get_prev_label(tx_label)
+                # prev_label_node_hash = self.tx_label_node_map[prev_label]
+
+
+    def get_prev_label(self, label):
+        prev_cmd, param = self._divide_label(label)
+        if prev_cmd == self.LABEL_DEPOSIT:
+            cmd = self.LABEL_WITHDRAW
+        elif prev_cmd == self.LABEL_RECEIPT_CONSUMING:
+            cmd = self.LABEL_RECEIPT
+            receipt_id = int(param)
+            param = str(self.receipts[receipt_id]['shard_id'])
+        return cmd + param
 
 
     def _mine_and_update_head_collation(self, num_of_blocks):
         for i in range(num_of_blocks):
             block = self.c.mine(1)
-            self._add_block_txs(block)
+            self._add_txs(block)
         self.update_collations()
 
 
@@ -165,7 +204,6 @@ class TestingLang(object):
                         'period': expected_period_number,
                         'period_start_prevhash': b'\x00' * 32,
                         'period_start_block_height': 0,
-                        'txs': [],
                     },
                 ]
             )
@@ -247,22 +285,24 @@ class TestingLang(object):
             shard_collation_map.append(layer_at_height)
 
         block_number = self.c.chain.env.config['PERIOD_LENGTH'] * expected_period_number - 1
+        txs_labels = []
         txs = []
         for tx in collation.transactions:
             if tx.hash not in self.made_txs.keys():
                 continue
-            txs.append({
+            txs_labels.append({
                 'tx_hash': tx.hash,
                 'label': self.made_txs[tx.hash]['label']
             })
+            txs.append(tx.hash)
         collation_obj = {
             'hash': collation.header.hash,
             'parent_collation_hash': parent_collation_hash,
             'period': collation.expected_period_number,
             'period_start_prevhash': collation.period_start_prevhash,
             'period_start_block_height': block_number,
-            'txs': txs,
         }
+        self.txs[collation.header.hash] = txs
         layer_at_height.insert(insert_index, collation_obj)
 
         # if it is the longest chain, set it as the shard head

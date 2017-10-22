@@ -54,10 +54,11 @@ def draw_struct(g, prev_hash, current_hash, height, txs, struct_type='block'):
     prev_label = '<prev> prev: \n {}'.format(prev_hash)
     txs_label = '{'
     for i in range(NUM_TX_IN_BLOCK):
-        txs_label += '<tx{}> '.format(i)
         if i >= len(txs):
+            txs_label += '<tx{}> '.format(i)
             txs_label += EMPTY_TX
         else:
+            txs_label += '<{}> '.format(txs[i])
             txs_label += txs[i]
         if i != NUM_TX_IN_BLOCK - 1:
             txs_label += ' | '
@@ -94,7 +95,7 @@ while current_block is not None:
         prev_block_hash = prev_block.header.hash.hex()[:LEN_HASH]
     current_block_hash = current_block.header.hash.hex()[:LEN_HASH]
     # print("!@# {}: {}".format(current_block.header.number, current_block_hash))
-    tx_labels = tl.get_tx_labels_from_block(current_block.header.hash)
+    tx_labels = tl.get_tx_labels_from_node(current_block.header.hash)
     draw_struct(
         g,
         prev_block_hash,
@@ -132,7 +133,7 @@ for shard_id, collation_map in tl.collation_map.items():
             layers[period_start_prevhash].append(name)
             # g.edge(name, prev_name)
             # g.node(name, label=label)#, shape='Mrecord')
-            tx_labels = [tx_info['label'] for tx_info in collation['txs']]
+            tx_labels = tl.get_tx_labels_from_node(collation['hash'])
             draw_struct(g, prev_name, name, i, tx_labels, struct_type='collation')
 
 def add_rank_same(g, node_list):
