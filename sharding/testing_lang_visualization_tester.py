@@ -8,6 +8,8 @@ from sharding.tools import tester
 tl = TestingLang()
 cmds = """
     D0
+    W0
+    D0
     B25
     C0
     R0
