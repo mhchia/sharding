@@ -24,12 +24,15 @@ cmds = """
     B5
     RC2
     C0,1,0
+    R0
     B5
     C0,1,1
-    # C0
+    B5
+    C0
     B5
     C1
     B5
+    RC3
     C0,2,1
 """
 cmd = """
@@ -57,12 +60,12 @@ LEN_HASH = 8
 NUM_TX_IN_BLOCK = 3
 EMPTY_TX = '&nbsp;' * 4
 
+def draw_event_edge(g, node, prev_node):
+    g.edge(node, prev_node, style='dashed', constraint='false')
+
+
 def draw_struct(g, prev_hash, current_hash, height, txs, struct_type='block'):
     assert len(txs) <= NUM_TX_IN_BLOCK
-    # if len(prev_hash) > LEN_HASH:
-    #     prev_hash = prev_hash[:LEN_HASH]
-    # if len(current_hash) > LEN_HASH:
-    #     current_hash = current_hash[:LEN_HASH]
     assert isinstance(height, int)
     hash_label = '<hash> {} {}:\n {}'.format(struct_type, height, current_hash)
     prev_label = '<prev> prev: \n {}'.format(prev_hash)
@@ -91,7 +94,7 @@ def draw_struct(g, prev_hash, current_hash, height, txs, struct_type='block'):
         label_index = current_hash + ':' + label
         try:
             prev_label_index = tl.node_label_map[label_index]
-            g.edge(label_index, prev_label_index, style='dashed', constraint='false')
+            draw_event_edge(g, label_index, prev_label_index)
         except:
             pass
 
