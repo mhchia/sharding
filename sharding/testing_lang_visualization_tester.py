@@ -78,7 +78,10 @@ def draw_struct(g, prev_hash, current_hash, height, txs, struct_type='block'):
             txs_label += ' | '
     txs_label += '}'
     # label = '{ %s | %s | %s }' % (hash_label, txs_label, prev_label)
-    label = '{ %s | %s }' % (hash_label, txs_label)
+    if len(txs) != 0:
+        label = '{ %s | %s }' % (hash_label, txs_label)
+    else:
+        label = '{ %s }' % hash_label
     shape = 'Mrecord' if struct_type == 'collation' else 'record'
     g.node(current_hash, label, shape=shape)
     g.edge(current_hash, prev_hash) # , weight=weight)
