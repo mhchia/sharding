@@ -34,7 +34,7 @@ def test_testing_lang_general():
     tl.execute(cmds)
 
     chain = tl.get_tester_chain().chain
-    assert tl.shard_head[0]['hash'] == chain.shards[0].head.header.hash
+    assert tl.shard_head[0].header.hash == chain.shards[0].head.header.hash
     # tl.print_collations_level_order(0)
 
 
@@ -79,7 +79,7 @@ def test_testing_lang_shard_head():
         B5
     """)
     assert head_hash_10 == chain.shards[0].head.header.hash
-    assert tl.shard_head[0]['hash'] == chain.shards[0].head.header.hash
+    assert tl.shard_head[0].header.hash == chain.shards[0].head.header.hash
     head_hash_11 = chain.shards[0].head.header.hash
     # head change
     tl.execute("""
@@ -88,8 +88,8 @@ def test_testing_lang_shard_head():
     """)
     assert head_hash_10 != chain.shards[0].head.header.hash
     assert head_hash_11 == chain.shards[0].head.header.parent_collation_hash
-    assert tl.shard_head[0]['hash'] == chain.shards[0].head.header.hash
-    assert tl.shard_head[0]['parent_collation_hash'] == head_hash_11
+    assert tl.shard_head[0].header.hash == chain.shards[0].head.header.hash
+    assert tl.shard_head[0].header.parent_collation_hash == head_hash_11
 
 
 def test_testing_lang_mk_transaction():

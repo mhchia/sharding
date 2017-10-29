@@ -57,7 +57,6 @@ class Record(object):
     def __init__(self):
         self.collations = defaultdict(dict)
         # self.collation_hash_index_map = {}
-        self.current_validators = {}
         # 'tx_hash' -> {'confirmed': 'node_hash', 'label': {'R'|'RC'|'D'|'W'|'TX', 'tx': tx}
         self.made_txs = {}
         # [{'shard_id', 'startgas', 'gasprice', 'to', 'value', 'data'}, ...]
@@ -128,14 +127,11 @@ class Record(object):
 
     def add_receipt_consuming(self, tx, receipt_id, shard_id):
         self._add_made_tx(tx, LABEL_RECEIPT_CONSUMING, receipt_id, shard_id)
+        self.receipts[receipt_id]['consumed'] = True
 
 
     def mark_tx_confirmed(self, tx_hash):
         self.made_txs[tx_hash]['confirmed'] = True
-
-
-    def mark_receipt_consumed(self, receipt_id):
-        self.receipts[receipt_id]['consumed'] = True
 
 
     def add_node_txs(self, node):
@@ -482,7 +478,6 @@ class TestingLang(object):
         tx.v, tx.r, tx.s = 1, receipt_id, 0
         self.c.direct_tx(tx, shard_id=receipt['shard_id'])
         self.record.add_receipt_consuming(tx, receipt_id, receipt['shard_id'])
-        self.record.mark_receipt_consumed(receipt_id)
 
 
     def mk_transaction(self, param_str):
