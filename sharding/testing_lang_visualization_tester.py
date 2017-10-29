@@ -2,10 +2,10 @@ import graphviz as gv
 
 from ethereum import utils
 
-from sharding.testing_lang import TestingLang
+from sharding import testing_lang
 from sharding.tools import tester
 
-tl = TestingLang()
+tl = testing_lang.TestingLang()
 cmds = """
     D0
     W0
@@ -49,6 +49,7 @@ cmd = """
     B1
 """
 tl.execute(cmds)
+
 expected_period_number = tl.c.chain.get_expected_period_number()
 
 g = gv.Digraph('G', filename='image')
@@ -56,9 +57,12 @@ g = gv.Digraph('G', filename='image')
 # g.attr(nodesep='2')
 # g.attr(ranksep='2.0')
 
-LEN_HASH = 8
 NUM_TX_IN_BLOCK = 3
 EMPTY_TX = '&nbsp;' * 4
+GENESIS_HASH = b'\x00' * 32
+
+record = tl.record
+
 
 def draw_event_edge(g, node, prev_node):
     g.edge(node, prev_node, style='dashed', constraint='false')
@@ -93,7 +97,7 @@ def draw_struct(g, prev_hash, current_hash, height, txs, struct_type='block'):
     for label in txs:
         label_index = current_hash + ':' + label
         try:
-            prev_label_index = tl.record.node_label_map[label_index]
+            prev_label_index = record.node_label_map[label_index]
             draw_event_edge(g, label_index, prev_label_index)
         except:
             pass
@@ -104,7 +108,7 @@ layers = {}
 mainchain_caption = "mainchain"
 chain = tl.get_tester_chain().chain
 current_block = chain.head
-min_hash = current_block.header.hash.hex()[:LEN_HASH]
+min_hash = testing_lang.get_shorten_hash(current_block.header.hash)
 
 g.node(mainchain_caption, shape='none')
 layers[mainchain_caption] = []
@@ -115,16 +119,20 @@ layers[mainchain_caption] = []
 #     layers[name] = []
 #     prev = name
 
+def draw_block(block):
+    # prev_block_hash
+    pass
+
 while current_block is not None:
     # draw head
     prev_block = chain.get_parent(current_block)
     if prev_block is None:
         prev_block_hash = mainchain_caption
     else:
-        prev_block_hash = prev_block.header.hash.hex()[:LEN_HASH]
-    current_block_hash = current_block.header.hash.hex()[:LEN_HASH]
+        prev_block_hash = testing_lang.get_shorten_hash(prev_block.header.hash)
+    current_block_hash = testing_lang.get_shorten_hash(current_block.header.hash)
     # print("!@# {}: {}".format(current_block.header.number, current_block_hash))
-    tx_labels = tl.record.get_tx_labels_from_node(current_block.header.hash)
+    tx_labels = record.get_tx_labels_from_node(current_block.header.hash)
     draw_struct(
         g,
         prev_block_hash,
@@ -137,33 +145,33 @@ while current_block is not None:
 
 
 # draw collations per shard
-genesis_hash = b'\x00' * 32
-prefix_length = 8
-for shard_id, collation_map in tl.record.collation_map.items():
+
+# for shard_id, collation_map in tl.collation_map.items():
+for shard_id, collations in record.collations.items():
     shardchain_caption = "shard_" + str(shard_id)
     g.node(shardchain_caption, shape='none')
     layers[mainchain_caption].append(shardchain_caption)
-    for i in range(len(collation_map)):
-        layer = collation_map[i]
-        for j in range(len(layer)):
-            collation = layer[j]
-            if collation['hash'] == genesis_hash:
-                continue
-            else:
-                label = "C{},{},{}\n\n".format(shard_id, i, j)
-                name = collation['hash'].hex()[:LEN_HASH]
-                label += name
-            prev_name = collation['parent_collation_hash']
-            if prev_name == None or prev_name == genesis_hash:
-                prev_name = shardchain_caption
-            else:
-                prev_name = prev_name.hex()[:LEN_HASH]
-            period_start_prevhash = collation['period_start_prevhash'].hex()[:LEN_HASH]
-            layers[period_start_prevhash].append(name)
-            # g.edge(name, prev_name)
-            # g.node(name, label=label)#, shape='Mrecord')
-            tx_labels = tl.record.get_tx_labels_from_node(collation['hash'])
-            draw_struct(g, prev_name, name, i, tx_labels, struct_type='collation')
+    for collation_hash, collation in collations.items():
+        if testing_lang.get_collation_hash(collation) == GENESIS_HASH:
+            continue
+        # label = "C{},{},{}\n\n".format(shard_id, i, j)
+        label = ''
+        i = collation.header.number
+        name = testing_lang.get_shorten_hash(collation.header.hash)
+        label += name
+        prev_name = collation.header.parent_collation_hash
+        if prev_name == GENESIS_HASH:
+            prev_name = shardchain_caption
+        else:
+            prev_name = testing_lang.get_shorten_hash(prev_name)
+        period_start_prevhash = testing_lang.get_shorten_hash(
+            collation.header.period_start_prevhash,
+        )
+        layers[period_start_prevhash].append(name)
+        # g.edge(name, prev_name)
+        # g.node(name, label=label)#, shape='Mrecord')
+        tx_labels = record.get_tx_labels_from_node(collation.header.hash)
+        draw_struct(g, prev_name, name, i, tx_labels, struct_type='collation')
 
 def add_rank(g, node_list, rank='same'):
     rank_same_str = "\t{rank=%s; " % rank
@@ -182,5 +190,5 @@ for period, labels in layers.items():
     add_rank(g, [period] + labels, rank)
 
 print(g.source)
-print("len(made_txs): ", len(tl.record.made_txs))
+print("len(made_txs): ", len(record.made_txs))
 g.view()
