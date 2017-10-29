@@ -140,7 +140,7 @@ with g.subgraph(name=mainchain_caption) as s:
 # draw collations per shard
 genesis_hash = b'\x00' * 32
 prefix_length = 8
-for shard_id, collation_map in tl.collation_map.items():
+for shard_id, collation_map in tl.record.collation_map.items():
     shardchain_caption = "shard_" + str(shard_id)
     with g.subgraph(name=shardchain_caption) as s:
         s.node(shardchain_caption, shape='none')
