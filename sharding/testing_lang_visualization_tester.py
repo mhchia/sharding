@@ -93,7 +93,7 @@ def draw_struct(g, prev_hash, current_hash, height, txs, struct_type='block'):
     for label in txs:
         label_index = current_hash + ':' + label
         try:
-            prev_label_index = tl.node_label_map[label_index]
+            prev_label_index = tl.record.node_label_map[label_index]
             draw_event_edge(g, label_index, prev_label_index)
         except:
             pass
@@ -125,7 +125,7 @@ with g.subgraph(name=mainchain_caption) as s:
             prev_block_hash = prev_block.header.hash.hex()[:LEN_HASH]
         current_block_hash = current_block.header.hash.hex()[:LEN_HASH]
         # print("!@# {}: {}".format(current_block.header.number, current_block_hash))
-        tx_labels = tl.get_tx_labels_from_node(current_block.header.hash)
+        tx_labels = tl.record.get_tx_labels_from_node(current_block.header.hash)
         draw_struct(
             s,
             prev_block_hash,
@@ -164,7 +164,7 @@ for shard_id, collation_map in tl.record.collation_map.items():
                 layers[period_start_prevhash].append(name)
                 # g.edge(name, prev_name)
                 # g.node(name, label=label)#, shape='Mrecord')
-                tx_labels = tl.get_tx_labels_from_node(collation['hash'])
+                tx_labels = tl.record.get_tx_labels_from_node(collation['hash'])
                 draw_struct(s, prev_name, name, i, tx_labels, struct_type='collation')
 
 def add_rank(g, node_list, rank='same'):
@@ -184,5 +184,5 @@ for period, labels in layers.items():
     add_rank(g, [period] + labels, rank)
 
 print(g.source)
-print("len(made_txs): ", len(tl.made_txs))
+print("len(made_txs): ", len(tl.record.made_txs))
 g.view()
