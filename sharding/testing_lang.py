@@ -68,8 +68,15 @@ class Record(object):
         # 'hash:label' -> previous 'hash:label'
         self.node_label_map = {}
 
+        self.block_events = defaultdict(list)
+
         self.blocks = {}
         self.mainchain_head = None
+
+        self.collation_map = {}
+        # collation_hash -> (height, order)
+        self.collation_coordinate = {}
+        self.shard_head = {}
 
 
     def add_block(self, block):
@@ -79,7 +86,7 @@ class Record(object):
         self.add_node_txs(block)
 
 
-    def add_collation(self, collation):
+    def add_collation_old(self, collation):
         collation_hash = get_collation_hash(collation)
         self.collations[collation.header.shard_id][collation_hash] = collation
         self.add_node_txs(collation)
@@ -194,17 +201,70 @@ class Record(object):
         return prev_cmd + param
 
 
+    def add_collation(self, collation):
+        parent_collation_hash = collation.header.parent_collation_hash
+        parent_height, parent_kth = self.collation_coordinate[parent_collation_hash]
+        shard_id = collation.header.shard_id
+        shard_collation_map = self.collation_map[shard_id]
+        insert_index = 0
+        try:
+            layer_at_height = shard_collation_map[parent_height + 1]
+
+            assert len(shard_collation_map[parent_height]) > 0
+            parent_ptr = len(shard_collation_map[parent_height]) - 1
+            assert len(layer_at_height) > 0
+            child_ptr = len(layer_at_height) - 1
+            # iterate each child and find its parent
+            # the first child whose parent's index is less than or equaled to the
+            # target parent's index, we insert the new collation after the child.
+            while child_ptr >= 0:
+                while (parent_ptr >= 0) and \
+                        (layer_at_height[child_ptr].header.parent_collation_hash != \
+                        get_collation_hash(shard_collation_map[parent_height][parent_ptr])):
+                    parent_ptr -= 1
+                assert parent_ptr >= 0  # a child must have a parent
+                if parent_ptr <= parent_kth:
+                    insert_index = child_ptr
+                    break
+                child_ptr -= 1
+        except IndexError:
+            layer_at_height = []
+            shard_collation_map.append(layer_at_height)
+
+
+        layer_at_height.insert(insert_index, collation)
+
+        # if it is the longest chain, set it as the shard head
+        if len(layer_at_height) == 1:
+            self.shard_head[shard_id] = collation
+
+        self.add_collation_old(collation)
+
+        self.add_node_txs(collation)
+
+        self.collation_coordinate[collation.header.hash] = (parent_height + 1, insert_index)
+
+
+    def init_shard(self, shard_id):
+        self.collation_map[shard_id] = [[None]]
+        self.collation_coordinate[GENESIS_HASH] = (0, 0)
+
+
+    def get_shard_head_hash(self, shard_id):
+        return get_collation_hash(self.shard_head[shard_id])
+
+
+    def get_collation_hash_by_coordinate(self, shard_id, parent_kth, parent_height):
+        collation = self.collation_map[shard_id][parent_height][parent_kth]
+        return get_collation_hash(collation)
+
+
+    def get_collation_coordinate_by_hash(self, collation_hash):
+        return self.collation_coordinate[collation_hash]
+
+
 class TestingLang(object):
 
-    LABEL_BLOCK = 'B'
-    LABEL_COLLATION = 'C'
-    LABEL_DEPOSIT = 'D'
-    LABEL_RECEIPT = 'R'
-    LABEL_RECEIPT_CONSUMING = 'RC'
-    LABEL_TRANSACTION = 'T'
-    LABEL_WITHDRAW = 'W'
-    LABEL_ADD_HEADER = 'AH'
-    LEN_HASH = 8
     TX_VALUE = utils.denoms.gwei
 
     def __init__(self, parser=Parser(), record=Record()):
@@ -218,8 +278,6 @@ class TestingLang(object):
             validator_manager_utils.get_valmgr_addr(),
         )
 
-        self.collation_map = {}
-        self.shard_head = {}
         self.current_validators = {}
 
         self.handlers = {}
@@ -273,77 +331,6 @@ class TestingLang(object):
         self._mine_and_update_head_collation(num_of_blocks)
 
 
-    def add_collation_as_shard_head(self, collation, parent_height, block_number):
-        shard_collation_map = self.collation_map[collation.header.shard_id]
-        parent_layer = shard_collation_map[parent_height]
-        parent_kth = 0
-        while parent_kth < len(parent_layer):
-            parent_collation = parent_layer[parent_kth]
-            if get_collation_hash(parent_collation) == collation.header.parent_collation_hash:
-                break
-            parent_kth += 1
-        assert parent_kth != len(parent_layer)  # parent must exist
-        self.add_collation_by_parent_coordinate(collation, parent_kth, parent_height, block_number)
-
-
-    def add_collation_by_parent_coordinate(
-            self,
-            collation,
-            parent_kth,
-            parent_height,
-            block_number):
-        shard_id = collation.header.shard_id
-        shard_collation_map = self.collation_map[shard_id]
-        insert_index = 0
-        try:
-            layer_at_height = shard_collation_map[parent_height + 1]
-
-            assert len(shard_collation_map[parent_height]) > 0
-            parent_ptr = len(shard_collation_map[parent_height]) - 1
-            assert len(layer_at_height) > 0
-            child_ptr = len(layer_at_height) - 1
-            # iterate each child and find its parent
-            # the first child whose parent's index is less than or equaled to the
-            # target parent's index, we insert the new collation after the child.
-            while child_ptr >= 0:
-                while (parent_ptr >= 0) and \
-                        (layer_at_height[child_ptr].header.parent_collation_hash != \
-                        get_collation_hash(shard_collation_map[parent_height][parent_ptr])):
-                    parent_ptr -= 1
-                assert parent_ptr >= 0  # a child must have a parent
-                if parent_ptr <= parent_kth:
-                    insert_index = child_ptr
-                    break
-                child_ptr -= 1
-        except IndexError:
-            layer_at_height = []
-            shard_collation_map.append(layer_at_height)
-
-
-        layer_at_height.insert(insert_index, collation)
-
-        # if it is the longest chain, set it as the shard head
-        if len(layer_at_height) == 1:
-            self.shard_head[shard_id] = collation
-
-        self.record.add_collation(collation)
-
-        self.record.add_node_txs(collation)
-
-
-    def init_shard(self, shard_id):
-        self.collation_map[shard_id] = [[None]]
-
-
-    def get_shard_head_hash(self, shard_id):
-        return get_collation_hash(self.shard_head[shard_id])
-
-
-    def get_collation_hash_by_coordinate(self, shard_id, parent_kth, parent_height):
-        collation = self.collation_map[shard_id][parent_height][parent_kth]
-        return get_collation_hash(collation)
-
-
     def collate(self, param_str):
         """1) Ci    : create a collation based on the head collation in shard `i`
            2) Cs,i,j: create a collation based on the `j`th collation in the `i`th layer of the
@@ -369,26 +356,21 @@ class TestingLang(object):
         collator_privkey = tester.keys[validator_index]
 
         expected_period_number = self.c.chain.get_expected_period_number()
-        block_number = self.c.chain.env.config['PERIOD_LENGTH'] * expected_period_number - 1
 
         if not self.c.chain.has_shard(shard_id):
             self.c.add_test_shard(shard_id)
-            self.init_shard(shard_id)
+            self.record.init_shard(shard_id)
 
         if len_params_list == 1:
             collation = self.c.collate(shard_id, collator_privkey)
             parent_collation_hash = collation.header.parent_collation_hash
-            collation_score = validator_manager_utils.call_valmgr(
-                self.c.head_state,
-                'get_collation_headers__score',
-                [shard_id, get_collation_hash(collation)],
+            parent_height, parent_kth = self.record.get_collation_coordinate_by_hash(
+                parent_collation_hash,
             )
-            parent_height = collation_score - 1
-            self.add_collation_as_shard_head(collation, parent_height, block_number)
         elif len_params_list == 3:
             if (parent_height < 0) or (parent_kth < 0):
                 raise ValueError("Invalid shard_id")
-            parent_collation_hash = self.get_collation_hash_by_coordinate(
+            parent_collation_hash = self.record.get_collation_hash_by_coordinate(
                 shard_id,
                 parent_kth,
                 parent_height,
@@ -415,12 +397,8 @@ class TestingLang(object):
                 rlp.encode(collation.header),
             )
             self.c.direct_tx(tx)
-            self.add_collation_by_parent_coordinate(
-                collation,
-                parent_kth,
-                parent_height,
-                block_number,
-            )
+        self.record.add_collation(collation)
+
         tx = self.c.block.transactions[-1]
         current_height = parent_height + 1
         self.record.add_add_header(tx, current_height)
@@ -428,7 +406,7 @@ class TestingLang(object):
         self.c.set_collation(
             shard_id,
             expected_period_number=expected_period_number,
-            parent_collation_hash=self.get_shard_head_hash(shard_id),
+            parent_collation_hash=self.record.get_shard_head_hash(shard_id),
         )
 
 
