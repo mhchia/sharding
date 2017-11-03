@@ -209,24 +209,30 @@ class Record(object):
         insert_index = 0
         try:
             layer_at_height = shard_collation_map[parent_height + 1]
-
-            assert len(shard_collation_map[parent_height]) > 0
-            parent_ptr = len(shard_collation_map[parent_height]) - 1
-            assert len(layer_at_height) > 0
-            child_ptr = len(layer_at_height) - 1
-            # iterate each child and find its parent
-            # the first child whose parent's index is less than or equaled to the
-            # target parent's index, we insert the new collation after the child.
-            while child_ptr >= 0:
-                while (parent_ptr >= 0) and \
-                        (layer_at_height[child_ptr].header.parent_collation_hash != \
-                        get_collation_hash(shard_collation_map[parent_height][parent_ptr])):
-                    parent_ptr -= 1
-                assert parent_ptr >= 0  # a child must have a parent
-                if parent_ptr <= parent_kth:
-                    insert_index = child_ptr
+            while insert_index < len(layer_at_height):
+                node = layer_at_height[insert_index]
+                node_parent_hash = node.header.parent_collation_hash
+                node_height, node_parent_kth = self.collation_coordinate[node_parent_hash]
+                if node_parent_kth > parent_kth:
                     break
-                child_ptr -= 1
+                insert_index += 1
+            # assert len(shard_collation_map[parent_height]) > 0
+            # parent_ptr = len(shard_collation_map[parent_height]) - 1
+            # assert len(layer_at_height) > 0
+            # child_ptr = len(layer_at_height) - 1
+            # # iterate each child and find its parent
+            # # the first child whose parent's index is less than or equaled to the
+            # # target parent's index, we insert the new collation after the child.
+            # while child_ptr >= 0:
+            #     while (parent_ptr >= 0) and \
+            #             (layer_at_height[child_ptr].header.parent_collation_hash != \
+            #             get_collation_hash(shard_collation_map[parent_height][parent_ptr])):
+            #         parent_ptr -= 1
+            #     assert parent_ptr >= 0  # a child must have a parent
+            #     if parent_ptr <= parent_kth:
+            #         insert_index = child_ptr
+            #         break
+            #     child_ptr -= 1
         except IndexError:
             layer_at_height = []
             shard_collation_map.append(layer_at_height)
@@ -240,7 +246,7 @@ class Record(object):
 
         self.add_collation_old(collation)
 
-        self.add_node_txs(collation)
+        # self.add_node_txs(collation)
 
         self.collation_coordinate[collation.header.hash] = (parent_height + 1, insert_index)
 
@@ -445,6 +451,7 @@ class TestingLang(object):
         sender_index = recipient_index = 0
         sender_privkey = tester.keys[sender_index]
         receipt = self.record.get_receipt(receipt_id)
+        print("!@# receipt", receipt)
         tx = Transaction(
             0,
             receipt['gasprice'],
