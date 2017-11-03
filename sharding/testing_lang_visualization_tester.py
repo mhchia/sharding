@@ -26,10 +26,19 @@ class ShardingVisualization(object):
         self.g.edge(node, prev_node, style='dashed', constraint='false')
 
 
-    def draw_struct(self, prev_hash, current_hash, height, txs, struct_type='block'):
+    def draw_block(self, prev_hash, current_hash, txs, height):
+        caption = 'B{}: {}'.format(height, current_hash)
+        self.draw_struct(prev_hash, current_hash, height, txs, 'record', caption)
+
+
+    def draw_collation(self, prev_hash, current_hash, height, order, txs):
+        caption = 'C({}, {}): {}'.format(height, order, current_hash)
+        self.draw_struct(prev_hash, current_hash, height, txs, 'Mrecord', caption)
+
+
+    def draw_struct(self, prev_hash, current_hash, height, txs, shape, caption):
         assert len(txs) <= self.NUM_TX_IN_BLOCK
         assert isinstance(height, int)
-        hash_label = '<hash> {} {}:\n {}'.format(struct_type, height, current_hash)
         prev_label = '<prev> prev: \n {}'.format(prev_hash)
         txs_label = '{'
         for i in range(self.NUM_TX_IN_BLOCK):
@@ -44,10 +53,9 @@ class ShardingVisualization(object):
         txs_label += '}'
         # label = '{ %s | %s | %s }' % (hash_label, txs_label, prev_label)
         if len(txs) != 0:
-            label = '{ %s | %s }' % (hash_label, txs_label)
+            label = '{ %s | %s }' % (caption, txs_label)
         else:
-            label = '{ %s }' % hash_label
-        shape = 'Mrecord' if struct_type == 'collation' else 'record'
+            label = '{ %s }' % caption
         self.g.node(current_hash, label, shape=shape)
         self.g.edge(current_hash, prev_hash) # , weight=weight)
 
@@ -78,11 +86,11 @@ class ShardingVisualization(object):
             current_block_hash = testing_lang.get_shorten_hash(current_block.header.hash)
             # print("!@# {}: {}".format(current_block.header.number, current_block_hash))
             tx_labels = self.record.get_tx_labels_from_node(current_block.header.hash)
-            self.draw_struct(
+            self.draw_block(
                 prev_block_hash,
                 current_block_hash,
-                current_block.header.number,
                 tx_labels,
+                current_block.header.number,
             )
             self.layers[current_block_hash] = []
             current_block = prev_block
@@ -95,13 +103,10 @@ class ShardingVisualization(object):
             self.layers[self.MAINCHAIN_CAPTION].append(shardchain_caption)
             collations = record.collations[shard_id]
             for collation_hash, collation in collations.items():
-                if testing_lang.get_collation_hash(collation) == self.GENESIS_HASH:
+                if collation_hash == self.GENESIS_HASH:
                     continue
-                # label = "C{},{},{}\n\n".format(shard_id, i, j)
-                label = ''
-                i = collation.header.number
-                name = testing_lang.get_shorten_hash(collation.header.hash)
-                label += name
+                height, order = self.record.get_collation_coordinate_by_hash(collation_hash)
+                name = testing_lang.get_shorten_hash(collation_hash)
                 prev_name = collation.header.parent_collation_hash
                 if prev_name == self.GENESIS_HASH:
                     prev_name = shardchain_caption
@@ -114,7 +119,7 @@ class ShardingVisualization(object):
                 # g.edge(name, prev_name)
                 # g.node(name, label=label)#, shape='Mrecord')
                 tx_labels = record.get_tx_labels_from_node(collation.header.hash)
-                self.draw_struct(prev_name, name, i, tx_labels, struct_type='collation')
+                self.draw_collation(prev_name, name, height, order, tx_labels)
 
 
     def add_rank(self, node_list, rank='same'):
