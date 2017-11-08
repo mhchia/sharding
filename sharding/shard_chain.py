@@ -55,6 +55,7 @@ class ShardChain(object):
         self.collation_blockhash_lists = defaultdict(list)    # M1: collation_header_hash -> list[blockhash]
         self.head_collation_of_block = {}   # M2: blockhash -> head_collation
         self.main_chain = main_chain
+        self.invalid_collation_listeners = []
 
         # Initialize the state
         head_hash_key = 'shard_' + str(shard_id) + '_head_hash'
@@ -137,6 +138,7 @@ class ShardChain(object):
                     self.shard_id
                 )
             except (AssertionError, KeyError, ValueError, InvalidTransaction, VerificationFailed) as e:
+                self.call_listeners(collation=collation)
                 log.info('Collation %s with parent %s invalid, reason: %s' %
                          (encode_hex(collation.header.hash), encode_hex(collation.header.parent_collation_hash), str(e)))
                 return False
@@ -322,3 +324,7 @@ class ShardChain(object):
         for blockhash, collhash in head_collation_of_block.items():
             output[decode_hex(blockhash)] = decode_hex(collhash)
         return output
+
+    def call_listeners(self, *args, **kwargs):
+        for func in self.invalid_collation_listeners:
+            func(*args, **kwargs)

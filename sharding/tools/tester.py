@@ -308,7 +308,7 @@ class Chain(object):
     def change_head(self, parent, coinbase=a0):
         self.head_state = self.chain.mk_poststate_of_blockhash(parent)
         self.block = mk_block_from_prevstate(self.chain, self.head_state, timestamp=self.chain.state.timestamp, coinbase=coinbase)
-        self.head_state.log_listeners = self.chain.state.log_listeners
+        # self.head_state.log_listeners = self.chain.state.log_listeners
         self.cs.initialize(self.head_state, self.block)
 
     def snapshot(self):
@@ -335,9 +335,11 @@ class Chain(object):
         add_header_topic = utils.big_endian_to_int(ADD_HEADER_TOPIC)
 
         def header_event_watcher(log):
-            if log.topics[0] == add_header_topic:
+            # added the check for `len(log.topics) == 1` to avoid the case
+            # of change_head event
+            if log.topics[0] == add_header_topic and (len(log.topics) == 1):
                 self.add_header_logs.append(log.data)
-        self.head_state.log_listeners.append(header_event_watcher)
+        self.chain.state.log_listeners.append(header_event_watcher)
 
     def get_period_start_prevhash(self, expected_period_number):
         # If it's on forked chain, we can't use get_blockhash_by_number.
@@ -412,6 +414,10 @@ class Chain(object):
         self.__init_shard_var(shard_id)
         if setup_urs_contracts:
             self.setup_and_deploy_urs_contracts(k0, shard_id)
+
+        def invalid_collation_watcher(collation):
+            print("!@# invalid_collation_watcher:", collation.to_dict())
+        self.chain.shards[shard_id].invalid_collation_listeners.append(invalid_collation_watcher)
 
     def generate_shard_tx(self, shard_id, sender=k0, to=b'\x00' * 20, value=0, data=b'', startgas=STARTGAS, gasprice=GASPRICE):
         """Generate a tx of shard

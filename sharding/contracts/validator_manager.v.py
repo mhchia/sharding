@@ -150,6 +150,10 @@ def withdraw(validator_index: num, sig: bytes <= 1000) -> bool:
         }
         self.stack_push(validator_index)
         self.num_validators -= 1
+        raw_log(
+            [sha3("withdraw")],
+            concat('', as_bytes32(validator_index)),
+        )
     return result
 
 
@@ -264,7 +268,14 @@ def add_header(header: bytes <= 4096) -> bool:
 
     # Determine the head
     if _score > self.collation_headers[shard_id][self.shard_head[shard_id]].score:
+        previous_head_hash = self.shard_head[shard_id]
         self.shard_head[shard_id] = entire_header_hash
+        # Logs only when `change_head` happens due to the fork
+        if previous_head_hash != parent_collation_hash:
+            raw_log(
+                [self.add_header_log_topic, sha3("change_head"), entire_header_hash],
+                concat('', previous_head_hash),
+            )
 
     # Emit log
     raw_log([self.add_header_log_topic], header)

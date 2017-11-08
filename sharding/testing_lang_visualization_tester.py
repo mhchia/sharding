@@ -1,6 +1,8 @@
 import graphviz as gv
 
 from ethereum import utils
+from ethereum.transactions import Transaction
+from ethereum.transaction_queue import TransactionQueue
 
 from sharding import testing_lang
 from sharding.tools import tester
@@ -31,8 +33,9 @@ class ShardingVisualization(object):
         self.draw_struct(prev_hash, current_hash, height, txs, 'record', caption)
 
 
-    def draw_collation(self, prev_hash, current_hash, height, order, txs):
-        caption = 'C({}, {}): {}'.format(height, order, current_hash)
+    def draw_collation(self, prev_hash, current_hash, height, order, txs, is_valid=True):
+        caption = 'C' if is_valid else 'IC'
+        caption += '({}, {}): {}'.format(height, order, current_hash)
         self.draw_struct(prev_hash, current_hash, height, txs, 'Mrecord', caption)
 
 
@@ -119,7 +122,8 @@ class ShardingVisualization(object):
                 # g.edge(name, prev_name)
                 # g.node(name, label=label)#, shape='Mrecord')
                 tx_labels = record.get_tx_labels_from_node(collation.header.hash)
-                self.draw_collation(prev_name, name, height, order, tx_labels)
+                is_valid = self.record.is_collation_valid(collation_hash)
+                self.draw_collation(prev_name, name, height, order, tx_labels, is_valid)
 
 
     def add_rank(self, node_list, rank='same'):
@@ -150,6 +154,68 @@ class ShardingVisualization(object):
         self.g.view()
 
 
+_current_state = None
+
+def set_state(state):
+    global _current_state
+    if _current_state is None:
+        _current_state = state
+
+
+# [sha3("add_header()")], header)
+# [sha3("add_header()"), sha3("change_head"), entire_header_hash], concat('', previous_head_hash))
+add_header_topic = utils.sha3("add_header()")
+# [sha3("deposit()"), as_bytes32(validation_code_addr)], concat('', as_bytes32(index))
+deposit_topic = utils.sha3("deposit()")
+# [sha3("withdraw")], concat('', as_bytes(validator_index))
+withdraw_topic = utils.sha3("withdraw()")
+# [sha3("tx_to_shard()"), as_bytes32(to), as_bytes32(shard_id)], as_bytes32(receipt_id)
+receipt_topic = utils.sha3("tx_to_shard()")
+# [sha3("add_used_receipt()")], concat('', as_bytes32(receipt_id))
+receipt_consuming_topic = utils.sha3("add_used_receipt()")
+
+add_header_events = []
+change_head_events = []
+deposit_events = []
+withdraw_events = []
+receipt_events = []
+receipt_consuming_events = []
+
+def add_header_watcher(log):
+    if log.topics[0] == utils.big_endian_to_int(add_header_topic) and \
+            len(log.topics) == 1:
+        print("!@# watcher add_header=", log.data)
+
+
+def change_head_watcher(log):
+    if log.topics[0] == utils.big_endian_to_int(add_header_topic) and \
+            len(log.topics) > 1 and \
+            log.topics[1] == utils.big_endian_to_int(utils.sha3("change_head")):
+        current_head_hash = hex(log.topics[2])[2:10]
+        previous_head_hash = testing_lang.get_shorten_hash(log.data)
+        print("!@# watcher change_head change_head={}, previous_head={}".format(current_head_hash, previous_head_hash))
+
+
+def deposit_event_watcher(log):
+    if log.topics[0] == utils.big_endian_to_int(deposit_topic):
+        print("!@# watcher deposit")
+
+
+def withdraw_event_watcher(log):
+    if log.topics[0] == utils.big_endian_to_int(withdraw_topic):
+        print("!@# watcher withdraw")
+
+
+def receipt_event_watcher(log):
+    if log.topics[0] == utils.big_endian_to_int(receipt_topic):
+        print("!@# watcher receipt")
+
+
+def receipt_consuming_event_watcher(log):
+    if log.topics[0] == utils.big_endian_to_int(receipt_consuming_topic):
+        print("!@# watcher receipt-consuming")
+
+
 def test_visualization():
     tl = testing_lang.TestingLang()
     cmds = """
@@ -176,10 +242,17 @@ def test_visualization():
         B5
         C0
         B5
+        IC0,0,0
+        B5
+        IC0,1,1
+        B5
         C1
         B5
         RC3
         C0,2,1
+        B5
+        C0,3,1
+        B5
     """
     cmd = """
         D0
@@ -188,12 +261,22 @@ def test_visualization():
         B5
         R0
         R0
-        B1
+        IC0,0,0
+        B5
         RC0
         RC1
         C0
         B1
     """
+    watcher_list = [
+        add_header_watcher,
+        change_head_watcher,
+        deposit_event_watcher,
+        withdraw_event_watcher,
+        receipt_event_watcher,
+        receipt_consuming_event_watcher,
+    ]
+    tl.c.chain.state.log_listeners += watcher_list
     tl.execute(cmds)
 
     # g.attr(splines='polyline')

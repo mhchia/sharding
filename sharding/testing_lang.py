@@ -15,6 +15,7 @@ log_tl = get_logger('sharding.tl')
 
 GENESIS_HASH = b'\x00' * 32
 LABEL_BLOCK = 'B'
+LABEL_INVALID_COLLATION = 'IC'
 LABEL_COLLATION = 'C'
 LABEL_DEPOSIT = 'D'
 LABEL_RECEIPT = 'R'
@@ -77,6 +78,7 @@ class Record(object):
         # collation_hash -> (height, order)
         self.collation_coordinate = {}
         self.shard_head = {}
+        self.collation_validity = {}
 
 
     def add_block(self, block):
@@ -92,15 +94,39 @@ class Record(object):
         self.add_node_txs(collation)
 
 
+    def mk_event_label(self, label, number):
+        return "{}{}".format(label, number)
+
+
     def _add_made_tx(self, tx, label, number, shard_id=None):
         """shard_id=None indicates it's in mainchain
         """
-        self.made_txs[tx.hash] = {
-            'tx': tx,
+        tx_hash = tx.hash
+        self.made_txs[tx_hash] = {
             'confirmed': False,
             'label': label + str(number),
             'shard_id': shard_id,
         }
+
+
+    def add_add_header_by_node(self, node_hash, number):
+        self.block_events[node_hash].append(self.mk_event_label(LABEL_ADD_HEADER, number))
+
+
+    def add_deposit_by_node(self, node_hash, number):
+        self.block_events[node_hash].append(self.mk_event_label(LABEL_DEPOSIT, number))
+
+
+    def add_withdraw_by_node(self, node_hash, number):
+        self.block_events[node_hash].append(self.mk_event_label(LABEL_WITHDRAW, number))
+
+
+    def add_receipt_by_node(self, node_hash, number):
+        self.block_events[node_hash].append(self.mk_event_label(LABEL_RECEIPT, number))
+
+
+    def add_receipt_consuming_by_node(self, node_hash, number):
+        self.block_events[node_hash].append(self.mk_event_label(LABEL_RECEIPT_CONSUMING, number))
 
 
     def add_add_header(self, tx, number):
@@ -201,7 +227,7 @@ class Record(object):
         return prev_cmd + param
 
 
-    def add_collation(self, collation):
+    def add_collation(self, collation, is_valid=True):
         parent_collation_hash = collation.header.parent_collation_hash
         parent_height, parent_kth = self.collation_coordinate[parent_collation_hash]
         shard_id = collation.header.shard_id
@@ -216,39 +242,20 @@ class Record(object):
                 if node_parent_kth > parent_kth:
                     break
                 insert_index += 1
-            # assert len(shard_collation_map[parent_height]) > 0
-            # parent_ptr = len(shard_collation_map[parent_height]) - 1
-            # assert len(layer_at_height) > 0
-            # child_ptr = len(layer_at_height) - 1
-            # # iterate each child and find its parent
-            # # the first child whose parent's index is less than or equaled to the
-            # # target parent's index, we insert the new collation after the child.
-            # while child_ptr >= 0:
-            #     while (parent_ptr >= 0) and \
-            #             (layer_at_height[child_ptr].header.parent_collation_hash != \
-            #             get_collation_hash(shard_collation_map[parent_height][parent_ptr])):
-            #         parent_ptr -= 1
-            #     assert parent_ptr >= 0  # a child must have a parent
-            #     if parent_ptr <= parent_kth:
-            #         insert_index = child_ptr
-            #         break
-            #     child_ptr -= 1
         except IndexError:
             layer_at_height = []
             shard_collation_map.append(layer_at_height)
 
-
         layer_at_height.insert(insert_index, collation)
 
+        collation_hash = get_collation_hash(collation)
         # if it is the longest chain, set it as the shard head
-        if len(layer_at_height) == 1:
+        if is_valid and (len(layer_at_height) == 1):
             self.shard_head[shard_id] = collation
 
         self.add_collation_old(collation)
-
-        # self.add_node_txs(collation)
-
-        self.collation_coordinate[collation.header.hash] = (parent_height + 1, insert_index)
+        self.collation_validity[collation_hash] = is_valid
+        self.collation_coordinate[collation_hash] = (parent_height + 1, insert_index)
 
 
     def init_shard(self, shard_id):
@@ -267,6 +274,10 @@ class Record(object):
 
     def get_collation_coordinate_by_hash(self, collation_hash):
         return self.collation_coordinate[collation_hash]
+
+
+    def is_collation_valid(self, collation_hash):
+        return self.collation_validity[collation_hash]
 
 
 class TestingLang(object):
@@ -288,7 +299,8 @@ class TestingLang(object):
 
         self.handlers = {}
         self.handlers[LABEL_BLOCK] = self.mine_block
-        self.handlers[LABEL_COLLATION] = self.collate
+        self.handlers[LABEL_INVALID_COLLATION] = self.add_invalid_collation
+        self.handlers[LABEL_COLLATION] = self.add_valid_collation
         self.handlers[LABEL_DEPOSIT] = self.deposit_validator
         self.handlers[LABEL_RECEIPT] = self.mk_receipt
         self.handlers[LABEL_RECEIPT_CONSUMING] = self.mk_receipt_consuming_transaction
@@ -317,6 +329,16 @@ class TestingLang(object):
         return self.c
 
 
+    def get_current_collator_privkey(self, shard_id):
+        collator_valcode_addr = utils.parse_as_bin(self.valmgr.sample(shard_id))
+        if collator_valcode_addr == (b'\x00' * 20):
+            print("No collator in this period in shard {}".format(shard_id))
+            return
+        validator_index = self.current_validators[collator_valcode_addr]
+        collator_privkey = tester.keys[validator_index]
+        return collator_privkey
+
+
     def update_collations(self):
         for value in self.c.chain.shard_id_list:
             self.c.update_collation(value)
@@ -337,7 +359,86 @@ class TestingLang(object):
         self._mine_and_update_head_collation(num_of_blocks)
 
 
-    def collate(self, param_str):
+    def mk_raw_collation(self, shard_id, parent_collation_hash, txs, collator_privkey=None):
+        tester_chain = self.get_tester_chain()
+        if collator_privkey is None:
+            collator_privkey = self.get_current_collator_privkey(shard_id)
+        txqueue = TransactionQueue()
+        for tx in txs:
+            txqueue.add_transaction(tx)
+        collation = tester_chain.generate_collation(
+            shard_id=shard_id,
+            coinbase=utils.privtoaddr(collator_privkey),
+            key=collator_privkey,
+            txqueue=txqueue,
+            parent_collation_hash=parent_collation_hash,
+        )
+        return collation
+
+
+    def add_invalid_collation(self, param_str):
+        '''Create a collation whose header will be accepted by the vmc,
+            however, its tx_list_root is invalid.
+           1) ICs    : create an invalid collation based on the
+           2) ICs,i,j: create an invalid collation based on the `j`th collation in the `i`th layer
+                       of the shard chain tree in shard `s`
+        '''
+        params_list = param_str.split(',')
+        len_params_list = len(params_list)
+        if len_params_list == 1:
+            shard_id = int(params_list[0])
+        elif len_params_list == 3:
+            shard_id, parent_height, parent_kth = map(int, params_list)
+            if (parent_height < 0) or (parent_kth < 0):
+                raise ValueError("Invalid height or order")
+        else:
+            raise ValueError("Invalid number of parameters")
+
+        if shard_id < 0:
+            raise ValueError("Invalid shard_id")
+
+        if not self.c.chain.has_shard(shard_id):
+            self.c.add_test_shard(shard_id)
+            self.record.init_shard(shard_id)
+
+        if len_params_list == 1:
+            parent_collation_hash = self.c.chain.shards[shard_id].head_hash
+            parent_height, parent_kth = self.record.get_collation_coordinate_by_hash(
+                parent_collation_hash,
+            )
+        elif len_params_list == 3:
+            if (parent_height < 0) or (parent_kth < 0):
+                raise ValueError("Invalid shard_id")
+            parent_collation_hash = self.record.get_collation_hash_by_coordinate(
+                shard_id,
+                parent_kth,
+                parent_height,
+            )
+        collator_privkey = self.get_current_collator_privkey(shard_id)
+        collation = self.mk_raw_collation(
+            shard_id,
+            parent_collation_hash,
+            [],
+            collator_privkey,
+        )
+        collation.header.tx_list_root = b'bad_root' * 4
+        collation.header.sig = contract_utils.sign(collation.signing_hash, collator_privkey)
+
+        tx = validator_manager_utils.call_tx_add_header(
+            self.c.head_state,
+            collator_privkey,
+            0,
+            rlp.encode(collation.header),
+        )
+        self.c.direct_tx(tx)
+        self.record.add_collation(collation, is_valid=False)
+
+        tx = self.c.block.transactions[-1]
+        current_height = parent_height + 1
+        self.record.add_add_header(tx, current_height)
+
+
+    def add_valid_collation(self, param_str):
         """1) Ci    : create a collation based on the head collation in shard `i`
            2) Cs,i,j: create a collation based on the `j`th collation in the `i`th layer of the
                       shard chain tree in shard `s`
@@ -348,19 +449,15 @@ class TestingLang(object):
             shard_id = int(params_list[0])
         elif len_params_list == 3:
             shard_id, parent_height, parent_kth = map(int, params_list)
+            if (parent_height < 0) or (parent_kth < 0):
+                raise ValueError("Invalid height or order")
         else:
             raise ValueError("Invalid number of parameters")
 
         if shard_id < 0:
             raise ValueError("Invalid shard_id")
 
-        collator_valcode_addr = utils.parse_as_bin(self.valmgr.sample(shard_id))
-        if collator_valcode_addr == (b'\x00' * 20):
-            print("No collator in this period in shard {}".format(shard_id))
-            return
-        validator_index = self.current_validators[collator_valcode_addr]
-        collator_privkey = tester.keys[validator_index]
-
+        collator_privkey = self.get_current_collator_privkey(shard_id)
         expected_period_number = self.c.chain.get_expected_period_number()
 
         if not self.c.chain.has_shard(shard_id):
@@ -381,15 +478,10 @@ class TestingLang(object):
                 parent_kth,
                 parent_height,
             )
-            txqueue = TransactionQueue()
-            for tx in self.c.collation[shard_id].transactions:
-                txqueue.add_transaction(tx)
-            collation = self.c.generate_collation(
-                shard_id=shard_id,
-                coinbase=utils.privtoaddr(collator_privkey),
-                key=collator_privkey,
-                txqueue=txqueue,
-                parent_collation_hash=parent_collation_hash,
+            collation = self.mk_raw_collation(
+                shard_id,
+                parent_collation_hash,
+                self.c.collation[shard_id].transactions,
             )
             period_start_prevblock = self.c.chain.get_block(collation.header.period_start_prevhash)
             self.c.chain.shards[shard_id].add_collation(
@@ -409,6 +501,7 @@ class TestingLang(object):
         current_height = parent_height + 1
         self.record.add_add_header(tx, current_height)
 
+        # FIXME: why parent_collation_hash=self.c.chain.shards[shard_id].head.hash doesn't work?
         self.c.set_collation(
             shard_id,
             expected_period_number=expected_period_number,
@@ -445,13 +538,9 @@ class TestingLang(object):
     def mk_receipt_consuming_transaction(self, param_str):
         """RC0: make a receipt-consuming tx which consumes the receipt 0
         """
-        print("!@# mk_rctx: ", param_str)
         params_list = param_str.split(',')
         receipt_id = int(params_list[0])
-        sender_index = recipient_index = 0
-        sender_privkey = tester.keys[sender_index]
         receipt = self.record.get_receipt(receipt_id)
-        print("!@# receipt", receipt)
         tx = Transaction(
             0,
             receipt['gasprice'],
