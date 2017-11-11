@@ -1,4 +1,3 @@
-from collections import defaultdict
 import re
 import rlp
 
@@ -7,33 +6,16 @@ from ethereum.slogging import get_logger
 from ethereum.transactions import Transaction
 from ethereum.transaction_queue import TransactionQueue
 
-from sharding import contract_utils, used_receipt_store_utils, validator_manager_utils
+from sharding import (
+    contract_utils,
+    used_receipt_store_utils,
+    validator_manager_utils,
+)
 from sharding.collation import Collation, CollationHeader
 from sharding.tools import tester
+from sharding.visualization import *
 
 log_tl = get_logger('sharding.tl')
-
-GENESIS_HASH = b'\x00' * 32
-LABEL_BLOCK = 'B'
-LABEL_INVALID_COLLATION = 'IC'
-LABEL_COLLATION = 'C'
-LABEL_DEPOSIT = 'D'
-LABEL_RECEIPT = 'R'
-LABEL_RECEIPT_CONSUMING = 'RC'
-LABEL_TRANSACTION = 'T'
-LABEL_WITHDRAW = 'W'
-LABEL_ADD_HEADER = 'AH'
-LEN_HASH = 8
-
-def get_shorten_hash(hash_bytes32):
-    # TODO: work around
-    return hash_bytes32.hex()[:LEN_HASH]
-
-
-def get_collation_hash(collation):
-    if collation is None:
-        return GENESIS_HASH
-    return collation.header.hash
 
 
 class Parser(object):
@@ -51,233 +33,6 @@ class Parser(object):
                 raise ValueError("Bad token")
             cmds.append((cmd, params))
         return cmds
-
-
-class Record(object):
-
-    def __init__(self):
-        self.collations = defaultdict(dict)
-        # self.collation_hash_index_map = {}
-        # 'tx_hash' -> {'confirmed': 'node_hash', 'label': {'R'|'RC'|'D'|'W'|'TX', 'tx': tx}
-        self.made_txs = {}
-        # [{'shard_id', 'startgas', 'gasprice', 'to', 'value', 'data'}, ...]
-        self.receipts = []
-        # 'hash' -> ['tx_hash1', 'tx_hash2', ...]
-        self.txs = {}
-        # 'label' -> 'node_name'
-        self.tx_label_node_map = {}
-        # 'hash:label' -> previous 'hash:label'
-        self.node_label_map = {}
-
-        self.block_events = defaultdict(list)
-
-        self.blocks = {}
-        self.mainchain_head = None
-
-        self.collation_map = {}
-        # collation_hash -> (height, order)
-        self.collation_coordinate = {}
-        self.shard_head = {}
-        self.collation_validity = {}
-
-
-    def add_block(self, block):
-        self.blocks[block.header.hash] = block
-        if self.mainchain_head is None or self.mainchain_head.header.number < block.header.number:
-            self.mainchain_head = block
-        self.add_node_txs(block)
-
-
-    def add_collation_old(self, collation):
-        collation_hash = get_collation_hash(collation)
-        self.collations[collation.header.shard_id][collation_hash] = collation
-        self.add_node_txs(collation)
-
-
-    def mk_event_label(self, label, number):
-        return "{}{}".format(label, number)
-
-
-    def _add_made_tx(self, tx, label, number, shard_id=None):
-        """shard_id=None indicates it's in mainchain
-        """
-        tx_hash = tx.hash
-        self.made_txs[tx_hash] = {
-            'confirmed': False,
-            'label': label + str(number),
-            'shard_id': shard_id,
-        }
-
-
-    def add_add_header_by_node(self, node_hash, number):
-        self.block_events[node_hash].append(self.mk_event_label(LABEL_ADD_HEADER, number))
-
-
-    def add_deposit_by_node(self, node_hash, number):
-        self.block_events[node_hash].append(self.mk_event_label(LABEL_DEPOSIT, number))
-
-
-    def add_withdraw_by_node(self, node_hash, number):
-        self.block_events[node_hash].append(self.mk_event_label(LABEL_WITHDRAW, number))
-
-
-    def add_receipt_by_node(self, node_hash, number):
-        self.block_events[node_hash].append(self.mk_event_label(LABEL_RECEIPT, number))
-
-
-    def add_receipt_consuming_by_node(self, node_hash, number):
-        self.block_events[node_hash].append(self.mk_event_label(LABEL_RECEIPT_CONSUMING, number))
-
-
-    def add_add_header(self, tx, number):
-        self._add_made_tx(tx, LABEL_ADD_HEADER, number)
-
-
-    def add_deposit(self, tx, validator_index):
-        self._add_made_tx(tx, LABEL_DEPOSIT, validator_index)
-
-
-    def add_withdraw(self, tx, validator_index):
-        self._add_made_tx(tx, LABEL_WITHDRAW, validator_index)
-
-
-    def add_receipt(self, tx, receipt_id, shard_id, startgas, gasprice, to, value, data):
-        self._add_made_tx(tx, LABEL_RECEIPT, receipt_id)
-        self.receipts.append({
-            'shard_id': shard_id,
-            'startgas': startgas,
-            'gasprice': gasprice,
-            'to': to,
-            'value': value,
-            'data': data,
-            'consumed': False,
-        })
-
-
-    def get_receipt(self, receipt_id):
-        return self.receipts[receipt_id]
-
-
-    def add_receipt_consuming(self, tx, receipt_id, shard_id):
-        self._add_made_tx(tx, LABEL_RECEIPT_CONSUMING, receipt_id, shard_id)
-        self.receipts[receipt_id]['consumed'] = True
-
-
-    def mark_tx_confirmed(self, tx_hash):
-        self.made_txs[tx_hash]['confirmed'] = True
-
-
-    def add_node_txs(self, node):
-        """node can be either a block or a collation
-        """
-        node_hash = node.header.hash
-        self.txs[node_hash] = []
-        for tx in node.transactions:
-            self.txs[node_hash].append(tx.hash)
-            # TODO: it seems all txs events should be processed here
-            if tx.hash in self.made_txs.keys():
-                tx_info = self.made_txs[tx.hash]
-                tx_label = tx_info['label']
-                self.tx_label_node_map[tx_label] = node.header.hash
-                print("!@# label, tx_label: {}, node_hash: {}".format(tx_label, node.header.hash))
-                prev_label = self.get_prev_label(tx_label)
-                if prev_label is not None:
-                    prev_label_node_hash = self.tx_label_node_map[prev_label]
-                    # print(
-                    #     "!@# label, prev_label: {}, prev_node_hash: {}".format(
-                    #         prev_label,
-                    #         prev_label_node_hash,
-                    #     )
-                    # )
-                    index = get_shorten_hash(node.header.hash) + ':' + tx_label
-                    value = get_shorten_hash(prev_label_node_hash) + ':' + prev_label
-                    self.node_label_map[index] = value
-
-
-    # should be removed and add a block_tx_labels map
-    def get_tx_labels_from_node(self, node_hash):
-        labels = []
-        if node_hash not in self.txs.keys():
-            return labels
-        for tx_hash in self.txs[node_hash]:
-            if tx_hash in self.made_txs.keys():
-                tx_info = self.made_txs[tx_hash]
-                labels.append(tx_info['label'])
-        return labels
-
-
-    def _divide_label(self, label):
-        cmd_params_pat = re.compile(r"([A-Za-z]+)([0-9,]+)")
-        cmd, params = cmd_params_pat.match(label).groups()
-        if (cmd + params) != label:
-            raise ValueError("Bad token")
-        return cmd, params
-
-
-    def get_prev_label(self, label):
-        cmd, param = self._divide_label(label)
-        if cmd == LABEL_WITHDRAW:
-            prev_cmd = LABEL_DEPOSIT
-        elif cmd == LABEL_RECEIPT_CONSUMING:
-            prev_cmd = LABEL_RECEIPT
-            # receipt_id = int(param)
-            # param = str(self.receipts[receipt_id]['shard_id'])
-        else:
-            return None
-        return prev_cmd + param
-
-
-    def add_collation(self, collation, is_valid=True):
-        parent_collation_hash = collation.header.parent_collation_hash
-        parent_height, parent_kth = self.collation_coordinate[parent_collation_hash]
-        shard_id = collation.header.shard_id
-        shard_collation_map = self.collation_map[shard_id]
-        insert_index = 0
-        try:
-            layer_at_height = shard_collation_map[parent_height + 1]
-            while insert_index < len(layer_at_height):
-                node = layer_at_height[insert_index]
-                node_parent_hash = node.header.parent_collation_hash
-                node_height, node_parent_kth = self.collation_coordinate[node_parent_hash]
-                if node_parent_kth > parent_kth:
-                    break
-                insert_index += 1
-        except IndexError:
-            layer_at_height = []
-            shard_collation_map.append(layer_at_height)
-
-        layer_at_height.insert(insert_index, collation)
-
-        collation_hash = get_collation_hash(collation)
-        # if it is the longest chain, set it as the shard head
-        if is_valid and (len(layer_at_height) == 1):
-            self.shard_head[shard_id] = collation
-
-        self.add_collation_old(collation)
-        self.collation_validity[collation_hash] = is_valid
-        self.collation_coordinate[collation_hash] = (parent_height + 1, insert_index)
-
-
-    def init_shard(self, shard_id):
-        self.collation_map[shard_id] = [[None]]
-        self.collation_coordinate[GENESIS_HASH] = (0, 0)
-
-
-    def get_shard_head_hash(self, shard_id):
-        return get_collation_hash(self.shard_head[shard_id])
-
-
-    def get_collation_hash_by_coordinate(self, shard_id, parent_kth, parent_height):
-        collation = self.collation_map[shard_id][parent_height][parent_kth]
-        return get_collation_hash(collation)
-
-
-    def get_collation_coordinate_by_hash(self, collation_hash):
-        return self.collation_coordinate[collation_hash]
-
-
-    def is_collation_valid(self, collation_hash):
-        return self.collation_validity[collation_hash]
 
 
 class TestingLang(object):

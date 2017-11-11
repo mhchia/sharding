@@ -52,6 +52,7 @@ from sharding.validator_manager_utils import (
     call_withdraw,
     call_tx_add_header,
 )
+from sharding.visualization import Record
 from sharding import used_receipt_store_utils
 
 # Initialize accounts
@@ -228,6 +229,9 @@ class Chain(object):
             self.deploy_initializing_contracts(k0)
             self.last_sender = k0
             self.mine(1)
+
+        # record for visualization
+        self.record = Record()
 
     def direct_tx(self, transaction, shard_id=None):
         if shard_id is None:
@@ -526,6 +530,97 @@ class Chain(object):
         for tx in txs:
             self.direct_tx(tx, shard_id=shard_id)
         self.shard_last_tx[shard_id], self.shard_last_sender[shard_id] = txs[-1], None
+
+    def get_processing_block_hash(self):
+        block = self.chain.processing_block
+        assert block is not None
+        return block.header.hash
+
+
+    def get_processing_collation_hash(self, shard_id):
+        assert self.chain.has_shard(shard_id)
+        collation = self.chain.shards[shard_id].processing_collation
+        assert collation is not None
+        return collation.header.hash
+
+
+    def set_mainchain_event_watchers(self):
+        # [sha3("add_header()")], header)
+        # [sha3("add_header()"), sha3("change_head"), entire_header_hash], concat('', previous_head_hash))
+        add_header_topic = utils.sha3("add_header()")
+        # [sha3("deposit()"), as_bytes32(validation_code_addr)], concat('', as_bytes32(index))
+        deposit_topic = utils.sha3("deposit()")
+        # [sha3("withdraw")], concat('', as_bytes32(validator_index))
+        withdraw_topic = utils.sha3("withdraw()")
+        # [sha3("tx_to_shard()"), as_bytes32(to), as_bytes32(shard_id)], as_bytes32(receipt_id)
+        receipt_topic = utils.sha3("tx_to_shard()")
+        # [sha3("add_used_receipt()")], concat('', as_bytes32(receipt_id))
+        receipt_consuming_topic = utils.sha3("add_used_receipt()")
+
+        def add_header_watcher(log):
+            if log.topics[0] == utils.big_endian_to_int(add_header_topic) and \
+                    len(log.topics) == 1:
+                print("!@# watcher add_header=", log.data)
+                # use sedes to prevent integer 0 from being decoded as b''
+                sedes = List([
+                    utils.big_endian_int,
+                    utils.big_endian_int,
+                    utils.hash32,
+                    utils.hash32,
+                    utils.hash32,
+                    utils.address,
+                    utils.hash32,
+                    utils.hash32,
+                    utils.big_endian_int,
+                    binary,
+                ])
+                values = rlp.decode(log.data, sedes)
+                number = values[8]
+                processing_block_hash = self.get_processing_block_hash()
+                self.record.add_add_header_by_node(processing_block_hash, number)
+                print("!@# watcher add_header: processing_block={}".format(block.header.hash.hex()[:8]))
+
+        def change_head_watcher(log):
+            if log.topics[0] == utils.big_endian_to_int(add_header_topic) and \
+                    len(log.topics) > 1 and \
+                    log.topics[1] == utils.big_endian_to_int(utils.sha3("change_head")):
+                current_head_hash = hex(log.topics[2])[2:10]
+                previous_head_hash = log.data.hex()[:8]
+                print("!@# watcher change_head change_head={}, previous_head={}".format(current_head_hash, previous_head_hash))
+
+        def deposit_event_watcher(log):
+            if log.topics[0] == utils.big_endian_to_int(deposit_topic):
+                validator_index = utils.big_endian_to_int(log.data)
+                processing_block_hash = self.get_processing_block_hash()
+                self.record.add_deposit_by_node(processing_block_hash, validator_index)
+                print("!@# watcher deposit")
+
+        def withdraw_event_watcher(log):
+            if log.topics[0] == utils.big_endian_to_int(withdraw_topic):
+                validator_index = utils.big_endian_to_int(log.data)
+                processing_block_hash = self.get_processing_block_hash()
+                self.record.add_deposit_by_node(processing_block_hash, validator_index)
+                print("!@# watcher withdraw")
+
+        def receipt_event_watcher(log):
+            if log.topics[0] == utils.big_endian_to_int(receipt_topic):
+                receipt_id = utils.big_endian_to_int(log.data)
+                processing_block_hash = self.get_processing_block_hash()
+                self.record.add_deposit_by_node(processing_block_hash, receipt_id)
+                print("!@# watcher receipt")
+
+        def receipt_consuming_event_watcher(log):
+            if log.topics[0] == utils.big_endian_to_int(receipt_consuming_topic):
+                print("!@# watcher receipt-consuming")
+
+        watcher_list = [
+            add_header_watcher,
+            change_head_watcher,
+            deposit_event_watcher,
+            withdraw_event_watcher,
+            receipt_event_watcher,
+        ]
+        self.chain.state.log_listeners += watcher_list
 
 
 def int_to_0x_hex(v):

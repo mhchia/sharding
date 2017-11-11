@@ -43,6 +43,15 @@ def initialize_genesis_keys(state, genesis, shard_id):
     db.commit()
 
 
+def set_processing_collation(func):
+    def new_func(self, collation, period_start_prevblock):
+        self.processing_collation = collation
+        result = func(self, collation, period_start_prevblock)
+        self.processing_collation = None
+        return result
+    return new_func
+
+
 class ShardChain(object):
     def __init__(self, shard_id, env=None,
                  new_head_cb=None, reset_genesis=False, localtime=None, max_history=1000,
@@ -56,6 +65,7 @@ class ShardChain(object):
         self.head_collation_of_block = {}   # M2: blockhash -> head_collation
         self.main_chain = main_chain
         self.invalid_collation_listeners = []
+        self.processing_collation = None
 
         # Initialize the state
         head_hash_key = 'shard_' + str(shard_id) + '_head_hash'
@@ -121,6 +131,7 @@ class ShardChain(object):
             log.info(str(e))
             return None
 
+    @set_processing_collation
     def add_collation(self, collation, period_start_prevblock):
         """Add collation to db and update score
         """

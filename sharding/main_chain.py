@@ -25,6 +25,13 @@ from sharding.validator_manager_utils import ADD_HEADER_TOPIC
 
 log = get_logger('eth.chain')
 
+def set_processing_block(func):
+    def new_func(self, block):
+        self.processing_block = block
+        result = func(self, block)
+        self.processing_block = None
+        return result
+    return new_func
 
 class MainChain(Chain):
     """Slightly modified pow.chain for sharding
@@ -38,8 +45,11 @@ class MainChain(Chain):
         self.shards = {}
         self.shard_id_list = set()
         self.add_header_logs = []
+        # used for watcher functions to see which block the event happens in
+        self.processing_block = None
 
     # Call upon receiving a block
+    @set_processing_block
     def add_block(self, block):
         now = self.localtime
         missing_collations = {}
