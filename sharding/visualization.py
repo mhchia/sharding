@@ -183,15 +183,18 @@ class ShardingVisualization(object):
     NUM_TX_IN_BLOCK = 3
     EMPTY_TX = '&nbsp;' * 4
     GENESIS_HASH = b'\x00' * 32
-    MAINCHAIN_CAPTION = "mainchain"
 
-    def __init__(self, record, mainchain):
-        self.record = record
-        self.mainchain = mainchain
+    def __init__(self, filename, tester_chain, draw_in_period=False):
+        self.record = tester_chain.record
+        self.mainchain = tester_chain.chain
+        self.draw_in_period = draw_in_period
         self.min_hash = None
+        self.mainchain_caption = "mainchain" if not draw_in_period else "period"
+        # FIXME: workaround
+        self.block_shorten_hash_to_period = {}
 
         self.layers = {}
-        self.g = gv.Digraph('G', filename='image')
+        self.g = gv.Digraph('G', filename=filename)
 
 
     def draw_event_edge(self, node, prev_node):
@@ -199,7 +202,10 @@ class ShardingVisualization(object):
 
 
     def draw_block(self, prev_hash, current_hash, txs, height):
-        caption = 'B{}: {}'.format(height, current_hash)
+        if self.draw_in_period:
+            caption = '{}'.format(height)
+        else:
+            caption = 'B{}: {}'.format(height, current_hash)
         self.draw_struct(prev_hash, current_hash, height, txs, 'record', caption)
 
 
@@ -212,7 +218,7 @@ class ShardingVisualization(object):
 
 
     def draw_struct(self, prev_hash, current_hash, height, txs, shape, caption):
-        assert len(txs) <= self.NUM_TX_IN_BLOCK
+        # assert len(txs) <= self.NUM_TX_IN_BLOCK
         assert isinstance(height, int)
         prev_label = '<prev> prev: \n {}'.format(prev_hash)
         txs_label = '{'
@@ -237,8 +243,13 @@ class ShardingVisualization(object):
         # draw event edges
         for label in txs:
             label_index = current_hash + ':' + label
+            if current_hash in self.block_shorten_hash_to_period.keys():
+                label_index = self.block_shorten_hash_to_period[current_hash] + ':' + label
             try:
                 prev_label_index = self.record.node_label_map[label_index]
+                prev_hash, prev_label = prev_label_index.split(':')
+                if prev_hash in self.block_shorten_hash_to_period.keys():
+                    prev_label_index = self.block_shorten_hash_to_period[prev_hash] + ':' + prev_label
                 self.draw_event_edge(label_index, prev_label_index)
             except:
                 pass
@@ -248,26 +259,46 @@ class ShardingVisualization(object):
         current_block = chain.head
         self.min_hash = get_shorten_hash(current_block.header.hash)
 
-        self.g.node(self.MAINCHAIN_CAPTION, shape='none')
-        self.layers[self.MAINCHAIN_CAPTION] = []
+        self.g.node(self.mainchain_caption, shape='none')
+        self.layers[self.mainchain_caption] = []
 
+        tx_labels_in_current_period = []
         # TODO: insert blocks into record, and then iterate them
         while current_block is not None:
             # draw head
             prev_block = chain.get_parent(current_block)
+            current_period = current_block.header.number // chain.env.config['PERIOD_LENGTH']
+            if current_period == 0:
+                prev_period = self.mainchain_caption
+            else:
+                prev_period = current_period - 1
             if prev_block is None:
-                prev_block_hash = self.MAINCHAIN_CAPTION
+                prev_block_hash = self.mainchain_caption
             else:
                 prev_block_hash = get_shorten_hash(prev_block.header.hash)
+                self.block_shorten_hash_to_period[prev_block_hash] = str(prev_period)
+
             current_block_hash = get_shorten_hash(current_block.header.hash)
+            self.block_shorten_hash_to_period[current_block_hash] = str(current_period)
             tx_labels = self.record.get_tx_labels_from_node(current_block.header.hash)
-            self.draw_block(
-                prev_block_hash,
-                current_block_hash,
-                tx_labels,
-                current_block.header.number,
-            )
-            self.layers[current_block_hash] = []
+            tx_labels_in_current_period = tx_labels + tx_labels_in_current_period
+            if not self.draw_in_period:
+                self.draw_block(
+                    prev_block_hash,
+                    current_block_hash,
+                    tx_labels,
+                    current_block.header.number,
+                )
+                self.layers[current_block_hash] = []
+            elif current_block.header.number % chain.env.config['PERIOD_LENGTH'] == 0:
+                self.draw_block(
+                    str(prev_period),
+                    str(current_period),
+                    tx_labels_in_current_period,
+                    current_period,
+                )
+                tx_labels_in_current_period = []
+                self.layers[str(current_period)] = []
             current_block = prev_block
 
 
@@ -275,7 +306,7 @@ class ShardingVisualization(object):
         for shard_id, collations in record.collations.items():
             shardchain_caption = "shard_" + str(shard_id)
             self.g.node(shardchain_caption, shape='none')
-            self.layers[self.MAINCHAIN_CAPTION].append(shardchain_caption)
+            self.layers[self.mainchain_caption].append(shardchain_caption)
             # TODO: first insert all collations into record and then iterate them
             collations = record.collations[shard_id]
             for collation_hash, collation in collations.items():
@@ -291,7 +322,10 @@ class ShardingVisualization(object):
                 period_start_prevhash = get_shorten_hash(
                     collation.header.period_start_prevhash,
                 )
-                self.layers[period_start_prevhash].append(name)
+                if self.draw_in_period:
+                    self.layers[str(collation.header.expected_period_number)].append(name)
+                else:
+                    self.layers[period_start_prevhash].append(name)
                 # g.edge(name, prev_name)
                 # g.node(name, label=label)#, shape='Mrecord')
                 tx_labels = record.get_tx_labels_from_node(collation.header.hash)
@@ -313,7 +347,7 @@ class ShardingVisualization(object):
             rank = 'same'
             if period == self.min_hash:
                 rank = 'source'
-            elif period == self.MAINCHAIN_CAPTION:
+            elif period == self.mainchain_caption:
                 rank = 'max'
             self.add_rank([period] + labels, rank)
 
@@ -321,6 +355,7 @@ class ShardingVisualization(object):
     def draw(self):
         self.draw_mainchain(self.mainchain)
         self.draw_shardchains(self.record)
+        print(self.layers)
         self.set_rank(self.layers)
 
         print(self.g.source)

@@ -60,21 +60,22 @@ def test_visualization():
     """
 
     tl.execute(cmds)
-    from sharding import used_receipt_store_utils
-    from sharding.tools import tester
-    shard_id = 0
-    urs = tester.ABIContract(tl.c, used_receipt_store_utils.get_urs_ct(shard_id), used_receipt_store_utils.get_urs_contract(shard_id)['addr'])
-    def watcher(log):
-        print("!@# log_listeners watcher!!!")
-    # tl.c.chain.shards[shard_id].state.log_listeners.append(watcher)
-    # tl.c.shard_head_state[shard_id].log_listeners.append(watcher)
-    # urs.add_used_receipt(3)
-    # tl.execute("""C0
-    # B5""")
-    # tl.execute("""C0
-    # B5""")
-    print('!@# log_listeners head_state in tl:', len(tl.c.shard_head_state[shard_id].log_listeners))
-    print('!@# log_listeners state in tl:', len(tl.c.chain.shards[shard_id].state.log_listeners))
 
-    sv = ShardingVisualization(tl.c.record, tl.c.chain)
+    # from sharding import used_receipt_store_utils
+    # from sharding.tools import tester
+    # shard_id = 0
+    # urs = tester.ABIContract(tl.c, used_receipt_store_utils.get_urs_ct(shard_id), used_receipt_store_utils.get_urs_contract(shard_id)['addr'])
+    # def watcher(log):
+    #     print("!@# log_listeners watcher!!!")
+    # # tl.c.chain.shards[shard_id].state.log_listeners.append(watcher)
+    # # tl.c.shard_head_state[shard_id].log_listeners.append(watcher)
+    # # urs.add_used_receipt(3)
+    # # tl.execute("""C0
+    # # B5""")
+    # # tl.execute("""C0
+    # # B5""")
+    # print('!@# log_listeners head_state in tl:', len(tl.c.shard_head_state[shard_id].log_listeners))
+    # print('!@# log_listeners state in tl:', len(tl.c.chain.shards[shard_id].state.log_listeners))
+
+    sv = ShardingVisualization('period', tl.c, draw_in_period=True)
     sv.draw()
