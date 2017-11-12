@@ -48,6 +48,7 @@ class TestingLang(object):
             validator_manager_utils.get_valmgr_ct(),
             validator_manager_utils.get_valmgr_addr(),
         )
+        self.receipts = []
 
         self.current_validators = {}
 
@@ -185,11 +186,13 @@ class TestingLang(object):
             rlp.encode(collation.header),
         )
         self.c.direct_tx(tx)
-        self.c.record.add_collation(collation, is_valid=False)
-
-        tx = self.c.block.transactions[-1]
-        current_height = parent_height + 1
-        self.c.record.add_add_header(tx, current_height)
+        self.c.record.add_collation(collation)
+        # `add_collation` to trigger callback functions in `invalid_collation_listeners`
+        period_start_prevblock = self.c.chain.get_block(collation.header.period_start_prevhash)
+        self.c.chain.shards[shard_id].add_collation(
+            collation,
+            period_start_prevblock,
+        )
 
 
     def add_valid_collation(self, param_str):
@@ -251,10 +254,6 @@ class TestingLang(object):
             self.c.direct_tx(tx)
         self.c.record.add_collation(collation)
 
-        tx = self.c.block.transactions[-1]
-        current_height = parent_height + 1
-        self.c.record.add_add_header(tx, current_height)
-
         # FIXME: why parent_collation_hash=self.c.chain.shards[shard_id].head.hash doesn't work?
         self.c.set_collation(
             shard_id,
@@ -286,7 +285,15 @@ class TestingLang(object):
             value=value,
         )
         tx = self.c.block.transactions[-1]
-        self.c.record.add_receipt(tx, receipt_id, shard_id, startgas, gasprice, to, value, data)
+        self.receipts.append({
+            'shard_id': shard_id,
+            'startgas': startgas,
+            'gasprice': gasprice,
+            'to': to,
+            'value': value,
+            'data': data,
+            'consumed': False,
+        })
 
 
     def mk_receipt_consuming_transaction(self, param_str):
@@ -294,7 +301,7 @@ class TestingLang(object):
         """
         params_list = param_str.split(',')
         receipt_id = int(params_list[0])
-        receipt = self.c.record.get_receipt(receipt_id)
+        receipt = self.receipts[receipt_id]
         tx = Transaction(
             0,
             receipt['gasprice'],
@@ -305,7 +312,6 @@ class TestingLang(object):
         )
         tx.v, tx.r, tx.s = 1, receipt_id, 0
         self.c.direct_tx(tx, shard_id=receipt['shard_id'])
-        self.c.record.add_receipt_consuming(tx, receipt_id, receipt['shard_id'])
 
 
     def mk_transaction(self, param_str):
@@ -360,7 +366,6 @@ class TestingLang(object):
         self.c.sharding_deposit(privkey, valcode_addr)
         self.current_validators[valcode_addr] = validator_index
         tx = self.c.block.transactions[-1]
-        self.c.record.add_deposit(tx, validator_index)
 
 
     def withdraw_validator(self, param_str):
@@ -377,4 +382,3 @@ class TestingLang(object):
         if not result:
             raise ValueError("Withdraw failed")
         tx = self.c.block.transactions[-1]
-        self.c.record.add_withdraw(tx, validator_index)

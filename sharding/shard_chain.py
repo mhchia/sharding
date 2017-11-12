@@ -149,6 +149,7 @@ class ShardChain(object):
                     self.shard_id
                 )
             except (AssertionError, KeyError, ValueError, InvalidTransaction, VerificationFailed) as e:
+                print("!@# invalid_collation: in add_collation")
                 self.call_listeners(collation=collation)
                 log.info('Collation %s with parent %s invalid, reason: %s' %
                          (encode_hex(collation.header.hash), encode_hex(collation.header.parent_collation_hash), str(e)))

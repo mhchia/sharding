@@ -32,17 +32,12 @@ class Record(object):
 
     def __init__(self):
         self.collations = defaultdict(dict)
-        # self.collation_hash_index_map = {}
-        # 'tx_hash' -> {'confirmed': 'node_hash', 'label': {'R'|'RC'|'D'|'W'|'TX', 'tx': tx}
-        self.made_txs = {}
-        # [{'shard_id', 'startgas', 'gasprice', 'to', 'value', 'data'}, ...]
-        self.receipts = []
-        # 'hash' -> ['tx_hash1', 'tx_hash2', ...]
-        self.txs = {}
         # 'label' -> 'node_name'
         self.tx_label_node_map = {}
         # 'hash:label' -> previous 'hash:label'
         self.node_label_map = {}
+        # [{'shard_id', 'startgas', 'gasprice', 'to', 'value', 'data'}, ...]
+        self.receipts = []
 
         self.node_events = defaultdict(list)
 
@@ -60,28 +55,15 @@ class Record(object):
         self.blocks[block.header.hash] = block
         if self.mainchain_head is None or self.mainchain_head.header.number < block.header.number:
             self.mainchain_head = block
-        # self._add_node_txs(block)
 
 
     def add_collation_old(self, collation):
         collation_hash = get_collation_hash(collation)
         self.collations[collation.header.shard_id][collation_hash] = collation
-        # self._add_node_txs(collation)
 
 
     def mk_event_label(self, label, number):
         return "{}{}".format(label, number)
-
-
-    def _add_made_tx(self, tx, label, number, shard_id=None):
-        """shard_id=None indicates it's in mainchain
-        """
-        tx_hash = tx.hash
-        self.made_txs[tx_hash] = {
-            'confirmed': False,
-            'label': label + str(number),
-            'shard_id': shard_id,
-        }
 
 
     def add_event_by_node(self, node_hash, event, number):
@@ -116,81 +98,7 @@ class Record(object):
         self.add_event_by_node(node_hash, LABEL_RECEIPT_CONSUMING, number)
 
 
-    def add_add_header(self, tx, number):
-        self._add_made_tx(tx, LABEL_ADD_HEADER, number)
-
-
-    def add_deposit(self, tx, validator_index):
-        self._add_made_tx(tx, LABEL_DEPOSIT, validator_index)
-
-
-    def add_withdraw(self, tx, validator_index):
-        self._add_made_tx(tx, LABEL_WITHDRAW, validator_index)
-
-
-    def add_receipt(self, tx, receipt_id, shard_id, startgas, gasprice, to, value, data):
-        self._add_made_tx(tx, LABEL_RECEIPT, receipt_id)
-        self.receipts.append({
-            'shard_id': shard_id,
-            'startgas': startgas,
-            'gasprice': gasprice,
-            'to': to,
-            'value': value,
-            'data': data,
-            'consumed': False,
-        })
-
-
-    def get_receipt(self, receipt_id):
-        return self.receipts[receipt_id]
-
-
-    def add_receipt_consuming(self, tx, receipt_id, shard_id):
-        self._add_made_tx(tx, LABEL_RECEIPT_CONSUMING, receipt_id, shard_id)
-        self.receipts[receipt_id]['consumed'] = True
-
-
-    def mark_tx_confirmed(self, tx_hash):
-        self.made_txs[tx_hash]['confirmed'] = True
-
-
-    def _add_node_txs(self, node):
-        """node can be either a block or a collation
-        """
-        node_hash = node.header.hash
-        self.txs[node_hash] = []
-        for tx in node.transactions:
-            self.txs[node_hash].append(tx.hash)
-            # TODO: it seems all txs events should be processed here
-            if tx.hash in self.made_txs.keys():
-                tx_info = self.made_txs[tx.hash]
-                tx_label = tx_info['label']
-                self.tx_label_node_map[tx_label] = node.header.hash
-                print("!@# label, tx_label: {}, node_hash: {}".format(tx_label, node.header.hash))
-                prev_label = self.get_prev_label(tx_label)
-                if prev_label is not None:
-                    prev_label_node_hash = self.tx_label_node_map[prev_label]
-                    # print(
-                    #     "!@# label, prev_label: {}, prev_node_hash: {}".format(
-                    #         prev_label,
-                    #         prev_label_node_hash,
-                    #     )
-                    # )
-                    index = get_shorten_hash(node.header.hash) + ':' + tx_label
-                    value = get_shorten_hash(prev_label_node_hash) + ':' + prev_label
-                    self.node_label_map[index] = value
-
-
-    # should be removed and add a block_tx_labels map
     def get_tx_labels_from_node(self, node_hash):
-        # labels = []
-        # if node_hash not in self.txs.keys():
-        #     return labels
-        # for tx_hash in self.txs[node_hash]:
-        #     if tx_hash in self.made_txs.keys():
-        #         tx_info = self.made_txs[tx_hash]
-        #         labels.append(tx_info['label'])
-        # return labels
         return self.node_events[node_hash]
 
 
@@ -208,8 +116,6 @@ class Record(object):
             prev_cmd = LABEL_DEPOSIT
         elif cmd == LABEL_RECEIPT_CONSUMING:
             prev_cmd = LABEL_RECEIPT
-            # receipt_id = int(param)
-            # param = str(self.receipts[receipt_id]['shard_id'])
         else:
             return None
         return prev_cmd + param
@@ -246,7 +152,7 @@ class Record(object):
         self.collation_coordinate[collation_hash] = (parent_height + 1, insert_index)
 
 
-    def mark_collation_invalid(self, collation_hash):
+    def set_collation_invalid(self, collation_hash):
         self.collation_validity[collation_hash] = False
 
 
@@ -301,6 +207,8 @@ class ShardingVisualization(object):
         caption = 'C' if is_valid else 'IC'
         caption += '({}, {}): {}'.format(height, order, current_hash)
         self.draw_struct(prev_hash, current_hash, height, txs, 'Mrecord', caption)
+        if not is_valid:
+            self.g.node(current_hash, color='red', style='filled')
 
 
     def draw_struct(self, prev_hash, current_hash, height, txs, shape, caption):

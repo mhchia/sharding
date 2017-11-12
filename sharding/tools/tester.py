@@ -629,7 +629,6 @@ class Chain(object):
         assert self.chain.has_shard(shard_id)
 
         def receipt_consuming_event_watcher(log):
-            print("!@#123")
             if log.topics[0] == utils.big_endian_to_int(receipt_consuming_topic):
                 receipt_id = utils.big_endian_to_int(log.data)
                 processing_collation_hash = self.get_processing_collation_hash(shard_id)
@@ -647,7 +646,7 @@ class Chain(object):
         self.chain.shards[shard_id].state.log_listeners.append(receipt_consuming_event_watcher)
 
         def invalid_collation_watcher(collation):
-            print("!@# invalid_collation_watcher:", collation.to_dict())
+            self.record.set_collation_invalid(collation.header.hash)
         self.chain.shards[shard_id].invalid_collation_listeners.append(invalid_collation_watcher)
         print('!@# log_listeners head_state:', len(self.shard_head_state[shard_id].log_listeners))
         print('!@# log_listeners state:', len(self.chain.shards[shard_id].state.log_listeners))
