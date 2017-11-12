@@ -6,18 +6,6 @@ from sharding import testing_lang
 from sharding.tools import tester
 from sharding.visualization import ShardingVisualization
 
-_current_tester_chain = None
-
-def get_current_tester_chain():
-    global _current_tester_chain
-    return _current_tester_chain
-
-
-def set_current_tester_chain(c):
-    global _current_tester_chain
-    _current_tester_chain = c
-
-
 def test_visualization():
     tl = testing_lang.TestingLang()
     cmds = """
@@ -68,12 +56,25 @@ def test_visualization():
         RC0
         RC1
         C0
-        B1
+        B5
     """
 
-    set_current_tester_chain(tl.c)
     tl.execute(cmds)
+    from sharding import used_receipt_store_utils
+    from sharding.tools import tester
+    shard_id = 0
+    urs = tester.ABIContract(tl.c, used_receipt_store_utils.get_urs_ct(shard_id), used_receipt_store_utils.get_urs_contract(shard_id)['addr'])
+    def watcher(log):
+        print("!@# log_listeners watcher!!!")
+    # tl.c.chain.shards[shard_id].state.log_listeners.append(watcher)
+    # tl.c.shard_head_state[shard_id].log_listeners.append(watcher)
+    # urs.add_used_receipt(3)
+    # tl.execute("""C0
+    # B5""")
+    # tl.execute("""C0
+    # B5""")
+    print('!@# log_listeners head_state in tl:', len(tl.c.shard_head_state[shard_id].log_listeners))
+    print('!@# log_listeners state in tl:', len(tl.c.chain.shards[shard_id].state.log_listeners))
 
-    record = tl.record
-    sv = ShardingVisualization(record, tl.c.chain)
+    sv = ShardingVisualization(tl.c.record, tl.c.chain)
     sv.draw()

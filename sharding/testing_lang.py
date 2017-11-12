@@ -39,9 +39,8 @@ class TestingLang(object):
 
     TX_VALUE = utils.denoms.gwei
 
-    def __init__(self, parser=Parser(), record=Record()):
+    def __init__(self, parser=Parser()):
         self.parser = parser
-        self.record = record
 
         self.c = tester.Chain(env='sharding', deploy_sharding_contracts=True)
         self.valmgr = tester.ABIContract(
@@ -102,7 +101,7 @@ class TestingLang(object):
     def _mine_and_update_head_collation(self, num_of_blocks):
         for i in range(num_of_blocks):
             block = self.c.mine(1)
-            self.record.add_block(block)
+            self.c.record.add_block(block)
         self.update_collations()
 
 
@@ -154,17 +153,17 @@ class TestingLang(object):
 
         if not self.c.chain.has_shard(shard_id):
             self.c.add_test_shard(shard_id)
-            self.record.init_shard(shard_id)
+            self.c.record.init_shard(shard_id)
 
         if len_params_list == 1:
             parent_collation_hash = self.c.chain.shards[shard_id].head_hash
-            parent_height, parent_kth = self.record.get_collation_coordinate_by_hash(
+            parent_height, parent_kth = self.c.record.get_collation_coordinate_by_hash(
                 parent_collation_hash,
             )
         elif len_params_list == 3:
             if (parent_height < 0) or (parent_kth < 0):
                 raise ValueError("Invalid shard_id")
-            parent_collation_hash = self.record.get_collation_hash_by_coordinate(
+            parent_collation_hash = self.c.record.get_collation_hash_by_coordinate(
                 shard_id,
                 parent_kth,
                 parent_height,
@@ -186,11 +185,11 @@ class TestingLang(object):
             rlp.encode(collation.header),
         )
         self.c.direct_tx(tx)
-        self.record.add_collation(collation, is_valid=False)
+        self.c.record.add_collation(collation, is_valid=False)
 
         tx = self.c.block.transactions[-1]
         current_height = parent_height + 1
-        self.record.add_add_header(tx, current_height)
+        self.c.record.add_add_header(tx, current_height)
 
 
     def add_valid_collation(self, param_str):
@@ -217,18 +216,18 @@ class TestingLang(object):
 
         if not self.c.chain.has_shard(shard_id):
             self.c.add_test_shard(shard_id)
-            self.record.init_shard(shard_id)
+            self.c.record.init_shard(shard_id)
 
         if len_params_list == 1:
             collation = self.c.collate(shard_id, collator_privkey)
             parent_collation_hash = collation.header.parent_collation_hash
-            parent_height, parent_kth = self.record.get_collation_coordinate_by_hash(
+            parent_height, parent_kth = self.c.record.get_collation_coordinate_by_hash(
                 parent_collation_hash,
             )
         elif len_params_list == 3:
             if (parent_height < 0) or (parent_kth < 0):
                 raise ValueError("Invalid shard_id")
-            parent_collation_hash = self.record.get_collation_hash_by_coordinate(
+            parent_collation_hash = self.c.record.get_collation_hash_by_coordinate(
                 shard_id,
                 parent_kth,
                 parent_height,
@@ -250,17 +249,17 @@ class TestingLang(object):
                 rlp.encode(collation.header),
             )
             self.c.direct_tx(tx)
-        self.record.add_collation(collation)
+        self.c.record.add_collation(collation)
 
         tx = self.c.block.transactions[-1]
         current_height = parent_height + 1
-        self.record.add_add_header(tx, current_height)
+        self.c.record.add_add_header(tx, current_height)
 
         # FIXME: why parent_collation_hash=self.c.chain.shards[shard_id].head.hash doesn't work?
         self.c.set_collation(
             shard_id,
             expected_period_number=expected_period_number,
-            parent_collation_hash=self.record.get_shard_head_hash(shard_id),
+            parent_collation_hash=self.c.record.get_shard_head_hash(shard_id),
         )
 
 
@@ -287,7 +286,7 @@ class TestingLang(object):
             value=value,
         )
         tx = self.c.block.transactions[-1]
-        self.record.add_receipt(tx, receipt_id, shard_id, startgas, gasprice, to, value, data)
+        self.c.record.add_receipt(tx, receipt_id, shard_id, startgas, gasprice, to, value, data)
 
 
     def mk_receipt_consuming_transaction(self, param_str):
@@ -295,7 +294,7 @@ class TestingLang(object):
         """
         params_list = param_str.split(',')
         receipt_id = int(params_list[0])
-        receipt = self.record.get_receipt(receipt_id)
+        receipt = self.c.record.get_receipt(receipt_id)
         tx = Transaction(
             0,
             receipt['gasprice'],
@@ -306,7 +305,7 @@ class TestingLang(object):
         )
         tx.v, tx.r, tx.s = 1, receipt_id, 0
         self.c.direct_tx(tx, shard_id=receipt['shard_id'])
-        self.record.add_receipt_consuming(tx, receipt_id, receipt['shard_id'])
+        self.c.record.add_receipt_consuming(tx, receipt_id, receipt['shard_id'])
 
 
     def mk_transaction(self, param_str):
@@ -361,7 +360,7 @@ class TestingLang(object):
         self.c.sharding_deposit(privkey, valcode_addr)
         self.current_validators[valcode_addr] = validator_index
         tx = self.c.block.transactions[-1]
-        self.record.add_deposit(tx, validator_index)
+        self.c.record.add_deposit(tx, validator_index)
 
 
     def withdraw_validator(self, param_str):
@@ -378,4 +377,4 @@ class TestingLang(object):
         if not result:
             raise ValueError("Withdraw failed")
         tx = self.c.block.transactions[-1]
-        self.record.add_withdraw(tx, validator_index)
+        self.c.record.add_withdraw(tx, validator_index)

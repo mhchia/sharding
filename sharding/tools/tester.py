@@ -232,6 +232,7 @@ class Chain(object):
 
         # record for visualization
         self.record = Record()
+        self.set_mainchain_event_watchers()
 
     def direct_tx(self, transaction, shard_id=None):
         if shard_id is None:
@@ -419,9 +420,7 @@ class Chain(object):
         if setup_urs_contracts:
             self.setup_and_deploy_urs_contracts(k0, shard_id)
 
-        def invalid_collation_watcher(collation):
-            print("!@# invalid_collation_watcher:", collation.to_dict())
-        self.chain.shards[shard_id].invalid_collation_listeners.append(invalid_collation_watcher)
+        self.set_shardchain_watcher(shard_id)
 
     def generate_shard_tx(self, shard_id, sender=k0, to=b'\x00' * 20, value=0, data=b'', startgas=STARTGAS, gasprice=GASPRICE):
         """Generate a tx of shard
@@ -531,17 +530,11 @@ class Chain(object):
             self.direct_tx(tx, shard_id=shard_id)
         self.shard_last_tx[shard_id], self.shard_last_sender[shard_id] = txs[-1], None
 
+
     def get_processing_block_hash(self):
         block = self.chain.processing_block
         assert block is not None
         return block.header.hash
-
-
-    def get_processing_collation_hash(self, shard_id):
-        assert self.chain.has_shard(shard_id)
-        collation = self.chain.shards[shard_id].processing_collation
-        assert collation is not None
-        return collation.header.hash
 
 
     def set_mainchain_event_watchers(self):
@@ -554,8 +547,6 @@ class Chain(object):
         withdraw_topic = utils.sha3("withdraw()")
         # [sha3("tx_to_shard()"), as_bytes32(to), as_bytes32(shard_id)], as_bytes32(receipt_id)
         receipt_topic = utils.sha3("tx_to_shard()")
-        # [sha3("add_used_receipt()")], concat('', as_bytes32(receipt_id))
-        receipt_consuming_topic = utils.sha3("add_used_receipt()")
 
         def add_header_watcher(log):
             if log.topics[0] == utils.big_endian_to_int(add_header_topic) and \
@@ -578,7 +569,9 @@ class Chain(object):
                 number = values[8]
                 processing_block_hash = self.get_processing_block_hash()
                 self.record.add_add_header_by_node(processing_block_hash, number)
-                print("!@# watcher add_header: processing_block={}".format(block.header.hash.hex()[:8]))
+                print("!@# watcher add_header: processing_block={}".format(
+                    processing_block_hash
+                ))
 
         def change_head_watcher(log):
             if log.topics[0] == utils.big_endian_to_int(add_header_topic) and \
@@ -599,19 +592,15 @@ class Chain(object):
             if log.topics[0] == utils.big_endian_to_int(withdraw_topic):
                 validator_index = utils.big_endian_to_int(log.data)
                 processing_block_hash = self.get_processing_block_hash()
-                self.record.add_deposit_by_node(processing_block_hash, validator_index)
+                self.record.add_withdraw_by_node(processing_block_hash, validator_index)
                 print("!@# watcher withdraw")
 
         def receipt_event_watcher(log):
             if log.topics[0] == utils.big_endian_to_int(receipt_topic):
                 receipt_id = utils.big_endian_to_int(log.data)
                 processing_block_hash = self.get_processing_block_hash()
-                self.record.add_deposit_by_node(processing_block_hash, receipt_id)
+                self.record.add_receipt_by_node(processing_block_hash, receipt_id)
                 print("!@# watcher receipt")
-
-        def receipt_consuming_event_watcher(log):
-            if log.topics[0] == utils.big_endian_to_int(receipt_consuming_topic):
-                print("!@# watcher receipt-consuming")
 
         watcher_list = [
             add_header_watcher,
@@ -621,6 +610,47 @@ class Chain(object):
             receipt_event_watcher,
         ]
         self.chain.state.log_listeners += watcher_list
+
+
+    def get_processing_collation_hash(self, shard_id):
+        assert self.chain.has_shard(shard_id)
+        collation = self.chain.shards[shard_id].processing_collation
+        # FIXME: it seems event watchers would be called in `shard_head_state`,
+        #        which should be avoided.
+        if collation is None:
+            return None
+        return collation.header.hash
+
+
+    def set_shardchain_watcher(self, shard_id):
+        # [sha3("add_used_receipt()")], concat('', as_bytes32(receipt_id))
+        receipt_consuming_topic = utils.sha3("add_used_receipt()")
+
+        assert self.chain.has_shard(shard_id)
+
+        def receipt_consuming_event_watcher(log):
+            print("!@#123")
+            if log.topics[0] == utils.big_endian_to_int(receipt_consuming_topic):
+                receipt_id = utils.big_endian_to_int(log.data)
+                processing_collation_hash = self.get_processing_collation_hash(shard_id)
+                if processing_collation_hash is None:
+                    return
+                self.record.add_receipt_consuming_by_node(
+                    processing_collation_hash,
+                    receipt_id,
+                )
+                print("!@# log_listeners watcher receipt-consuming: hash={}, receipt_id={}".format(
+                    processing_collation_hash, receipt_id
+                ))
+        print("!@# set_shardchain_watcher={}".format(shard_id))
+        # self.shard_head_state[shard_id].log_listeners.append(receipt_consuming_event_watcher)
+        self.chain.shards[shard_id].state.log_listeners.append(receipt_consuming_event_watcher)
+
+        def invalid_collation_watcher(collation):
+            print("!@# invalid_collation_watcher:", collation.to_dict())
+        self.chain.shards[shard_id].invalid_collation_listeners.append(invalid_collation_watcher)
+        print('!@# log_listeners head_state:', len(self.shard_head_state[shard_id].log_listeners))
+        print('!@# log_listeners state:', len(self.chain.shards[shard_id].state.log_listeners))
 
 
 def int_to_0x_hex(v):

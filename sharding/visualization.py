@@ -44,7 +44,7 @@ class Record(object):
         # 'hash:label' -> previous 'hash:label'
         self.node_label_map = {}
 
-        self.block_events = defaultdict(list)
+        self.node_events = defaultdict(list)
 
         self.blocks = {}
         self.mainchain_head = None
@@ -60,13 +60,13 @@ class Record(object):
         self.blocks[block.header.hash] = block
         if self.mainchain_head is None or self.mainchain_head.header.number < block.header.number:
             self.mainchain_head = block
-        self.add_node_txs(block)
+        # self._add_node_txs(block)
 
 
     def add_collation_old(self, collation):
         collation_hash = get_collation_hash(collation)
         self.collations[collation.header.shard_id][collation_hash] = collation
-        self.add_node_txs(collation)
+        # self._add_node_txs(collation)
 
 
     def mk_event_label(self, label, number):
@@ -84,24 +84,36 @@ class Record(object):
         }
 
 
+    def add_event_by_node(self, node_hash, event, number):
+        label = self.mk_event_label(event, number)
+        self.tx_label_node_map[label] = node_hash
+        prev_label = self.get_prev_label(label)
+        if prev_label is not None:
+            prev_label_node_hash = self.tx_label_node_map[prev_label]
+            index = get_shorten_hash(node_hash) + ':' + label
+            value = get_shorten_hash(prev_label_node_hash) + ':' + prev_label
+            self.node_label_map[index] = value
+        self.node_events[node_hash].append(label)
+
+
     def add_add_header_by_node(self, node_hash, number):
-        self.block_events[node_hash].append(self.mk_event_label(LABEL_ADD_HEADER, number))
+        self.add_event_by_node(node_hash, LABEL_ADD_HEADER, number)
 
 
     def add_deposit_by_node(self, node_hash, number):
-        self.block_events[node_hash].append(self.mk_event_label(LABEL_DEPOSIT, number))
+        self.add_event_by_node(node_hash, LABEL_DEPOSIT, number)
 
 
     def add_withdraw_by_node(self, node_hash, number):
-        self.block_events[node_hash].append(self.mk_event_label(LABEL_WITHDRAW, number))
+        self.add_event_by_node(node_hash, LABEL_WITHDRAW, number)
 
 
     def add_receipt_by_node(self, node_hash, number):
-        self.block_events[node_hash].append(self.mk_event_label(LABEL_RECEIPT, number))
+        self.add_event_by_node(node_hash, LABEL_RECEIPT, number)
 
 
     def add_receipt_consuming_by_node(self, node_hash, number):
-        self.block_events[node_hash].append(self.mk_event_label(LABEL_RECEIPT_CONSUMING, number))
+        self.add_event_by_node(node_hash, LABEL_RECEIPT_CONSUMING, number)
 
 
     def add_add_header(self, tx, number):
@@ -142,7 +154,7 @@ class Record(object):
         self.made_txs[tx_hash]['confirmed'] = True
 
 
-    def add_node_txs(self, node):
+    def _add_node_txs(self, node):
         """node can be either a block or a collation
         """
         node_hash = node.header.hash
@@ -171,14 +183,15 @@ class Record(object):
 
     # should be removed and add a block_tx_labels map
     def get_tx_labels_from_node(self, node_hash):
-        labels = []
-        if node_hash not in self.txs.keys():
-            return labels
-        for tx_hash in self.txs[node_hash]:
-            if tx_hash in self.made_txs.keys():
-                tx_info = self.made_txs[tx_hash]
-                labels.append(tx_info['label'])
-        return labels
+        # labels = []
+        # if node_hash not in self.txs.keys():
+        #     return labels
+        # for tx_hash in self.txs[node_hash]:
+        #     if tx_hash in self.made_txs.keys():
+        #         tx_info = self.made_txs[tx_hash]
+        #         labels.append(tx_info['label'])
+        # return labels
+        return self.node_events[node_hash]
 
 
     def _divide_label(self, label):
@@ -231,6 +244,10 @@ class Record(object):
         self.add_collation_old(collation)
         self.collation_validity[collation_hash] = is_valid
         self.collation_coordinate[collation_hash] = (parent_height + 1, insert_index)
+
+
+    def mark_collation_invalid(self, collation_hash):
+        self.collation_validity[collation_hash] = False
 
 
     def init_shard(self, shard_id):
@@ -335,7 +352,6 @@ class ShardingVisualization(object):
             else:
                 prev_block_hash = get_shorten_hash(prev_block.header.hash)
             current_block_hash = get_shorten_hash(current_block.header.hash)
-            # print("!@# {}: {}".format(current_block.header.number, current_block_hash))
             tx_labels = self.record.get_tx_labels_from_node(current_block.header.hash)
             self.draw_block(
                 prev_block_hash,
