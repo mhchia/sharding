@@ -151,7 +151,7 @@ def withdraw(validator_index: num, sig: bytes <= 1000) -> bool:
         self.stack_push(validator_index)
         self.num_validators -= 1
         raw_log(
-            [sha3("withdraw")],
+            [sha3("withdraw()")],
             concat('', as_bytes32(validator_index)),
         )
     return result
