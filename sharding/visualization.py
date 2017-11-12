@@ -243,12 +243,12 @@ class ShardingVisualization(object):
         # draw event edges
         for label in txs:
             label_index = current_hash + ':' + label
-            if current_hash in self.block_shorten_hash_to_period.keys():
+            if self.draw_in_period and current_hash in self.block_shorten_hash_to_period.keys():
                 label_index = self.block_shorten_hash_to_period[current_hash] + ':' + label
             try:
                 prev_label_index = self.record.node_label_map[label_index]
                 prev_hash, prev_label = prev_label_index.split(':')
-                if prev_hash in self.block_shorten_hash_to_period.keys():
+                if self.draw_in_period and prev_hash in self.block_shorten_hash_to_period.keys():
                     prev_label_index = self.block_shorten_hash_to_period[prev_hash] + ':' + prev_label
                 self.draw_event_edge(label_index, prev_label_index)
             except:
