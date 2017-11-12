@@ -222,6 +222,7 @@ class ShardChain(object):
         state.txindex = len(collation.transactions)
         state.recent_uncles = {}
         state.prev_headers = []
+        state.log_listeners = self.state.log_listeners
 
         assert len(state.journal) == 0, state.journal
         return state

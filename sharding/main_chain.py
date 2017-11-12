@@ -327,6 +327,7 @@ class MainChain(Chain):
             collhash = collation.header.hash
             shard_id = collation.header.shard_id
             shard = self.shards[shard_id]
+            log_listeners = shard.state.log_listeners
 
         # Update collation_blockhash_lists
         if self.has_shard(shard_id) and collhash and shard.db.get(collhash):
@@ -341,6 +342,7 @@ class MainChain(Chain):
             # Set head
             shard.head_hash = shard.head_collation_of_block[self.head_hash]
             shard.state = shard.mk_poststate_of_collation_hash(shard.head_hash)
+            shard.state.log_listeners = log_listeners
         else:
             # The given block doesn't contain a collation
             self._reorganize_all_shards(block)
@@ -360,7 +362,9 @@ class MainChain(Chain):
             else:
                 # The shard was just initialized
                 self.shards[k].head_collation_of_block[blockhash] = self.shards[k].head_hash
+            log_listeners = self.shards[k].state.log_listeners
             self.shards[k].state = self.shards[k].mk_poststate_of_collation_hash(self.shards[k].head_hash)
+            self.shards[k].state.log_listeners = log_listeners
 
     def handle_ignored_collation(self, collation):
         """Handle the ignored collation (previously ignored collation)
