@@ -190,7 +190,7 @@ class ShardingVisualization(object):
         self.draw_in_period = draw_in_period
         self.min_hash = None
         self.mainchain_caption = "mainchain" if not draw_in_period else "period"
-        # FIXME: workaround
+        # FIXME: dirty way to record the period of a block hash
         self.block_shorten_hash_to_period = {}
 
         self.layers = {}
@@ -222,6 +222,8 @@ class ShardingVisualization(object):
         assert isinstance(height, int)
         prev_label = '<prev> prev: \n {}'.format(prev_hash)
         txs_label = '{'
+        # remove add_header event if it is in `draw_in_period` mode
+        txs = [event_label for event_label in txs if LABEL_ADD_HEADER not in event_label]
         for i in range(self.NUM_TX_IN_BLOCK):
             if i >= len(txs):
                 txs_label += '<tx{}> '.format(i)
@@ -250,6 +252,8 @@ class ShardingVisualization(object):
                 prev_hash, prev_label = prev_label_index.split(':')
                 if self.draw_in_period and prev_hash in self.block_shorten_hash_to_period.keys():
                     prev_label_index = self.block_shorten_hash_to_period[prev_hash] + ':' + prev_label
+                if (LABEL_ADD_HEADER in label) or (LABEL_ADD_HEADER in prev_label):
+                    continue
                 self.draw_event_edge(label_index, prev_label_index)
             except:
                 pass
