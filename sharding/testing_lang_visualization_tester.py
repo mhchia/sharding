@@ -10,8 +10,11 @@ def test_visualization():
     tl = testing_lang.TestingLang()
     cmds = """
         D0
+        B5
         W0
         D0
+        R0
+        R0
         B25
         C0
         R0

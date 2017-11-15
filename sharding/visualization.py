@@ -281,22 +281,40 @@ class ShardingVisualization(object):
         # assert len(txs) <= self.NUM_TX_IN_BLOCK
 
         assert isinstance(height, int)
-        prev_label = '<prev> prev: \n {}'.format(prev_node_name)
         label_list = [item[0][1] for item in label_edges]
-        txs_label = '{'
-        for i in range(self.NUM_TX_IN_BLOCK):
+        # txs_label = '{'
+        # for i in range(self.NUM_TX_IN_BLOCK):
+        #     if i >= len(label_list):
+        #         txs_label += '<tx{}> '.format(i)
+        #         txs_label += self.EMPTY_TX
+        #     else:
+        #         txs_label += '<{}> '.format(label_list[i])
+        #         txs_label += label_list[i]
+        #     if i != self.NUM_TX_IN_BLOCK - 1:
+        #         txs_label += ' | '
+        # txs_label += '}'
+        padding_num = ((len(label_list) // self.NUM_TX_IN_BLOCK) + 1) * self.NUM_TX_IN_BLOCK
+        tx_labels_str = ''
+        for i in range(padding_num):
+            if i % self.NUM_TX_IN_BLOCK == 0:
+                if i != 0:
+                    tx_labels_str += ' | '
+                tx_labels_str += '{'
             if i >= len(label_list):
-                txs_label += '<tx{}> '.format(i)
-                txs_label += self.EMPTY_TX
+                tx_labels_str += '<tx{}> '.format(i)
+                tx_labels_str += self.EMPTY_TX
             else:
-                txs_label += '<{}> '.format(label_list[i])
-                txs_label += label_list[i]
-            if i != self.NUM_TX_IN_BLOCK - 1:
-                txs_label += ' | '
-        txs_label += '}'
+                tx_labels_str += '<{}> '.format(label_list[i])
+                tx_labels_str += label_list[i]
+            if (i % self.NUM_TX_IN_BLOCK) == (self.NUM_TX_IN_BLOCK - 1):
+                tx_labels_str += '}'
+            else:
+                tx_labels_str += ' | '
+        if len(label_list) > self.NUM_TX_IN_BLOCK:
+            tx_labels_str = '{{' + tx_labels_str + '}}'
         # label = '{ %s | %s | %s }' % (hash_label, txs_label, prev_label)
         if len(label_list) != 0:
-            struct_label = '{ %s | %s }' % (caption, txs_label)
+            struct_label = '{ %s | %s }' % (caption, tx_labels_str)
         else:
             struct_label = '{ %s }' % caption
         self.g.node(node_name, struct_label, shape=shape)
