@@ -145,9 +145,12 @@ class Record(object):
 
     def add_collation(self, collation, is_valid=True):
         collation_header = collation.header
+        shard_id = collation_header.shard_id
+        if shard_id not in self.collation_matrix:
+            self.init_shard(shard_id)
         parent_collation_hash = collation_header.parent_collation_hash
         parent_height, parent_kth = self.collation_coordinate[parent_collation_hash]
-        shard_id = collation_header.shard_id
+
         shard_collation_matrix = self.collation_matrix[shard_id]
         insert_index = 0
         try:

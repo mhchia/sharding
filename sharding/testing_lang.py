@@ -153,7 +153,6 @@ class TestingLang(object):
 
         if not self.c.chain.has_shard(shard_id):
             self.c.add_test_shard(shard_id)
-            self.c.record.init_shard(shard_id)
 
         if len_params_list == 1:
             parent_collation_hash = self.c.chain.shards[shard_id].head_hash
