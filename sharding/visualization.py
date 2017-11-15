@@ -121,7 +121,7 @@ class Record(object):
 
 
     def get_tx_labels_from_node(self, node_hash):
-        if node_hash not in self.node_events.keys():
+        if node_hash not in self.node_events:
             return []
         return self.node_events[node_hash]
 
@@ -245,7 +245,7 @@ class ShardingVisualization(object):
 
     def get_node_name_from_hash(self, node_hash):
         if self.draw_in_period and \
-                node_hash in self.record.blocks.keys():
+                node_hash in self.record.blocks:
             block_number = self.record.blocks[node_hash].number
             return str(block_number // self.mainchain.env.config['PERIOD_LENGTH'])
         if isinstance(node_hash, bytes):
