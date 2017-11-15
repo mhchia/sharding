@@ -80,5 +80,5 @@ def test_visualization():
     # print('!@# log_listeners head_state in tl:', len(tl.c.shard_head_state[shard_id].log_listeners))
     # print('!@# log_listeners state in tl:', len(tl.c.chain.shards[shard_id].state.log_listeners))
 
-    sv = ShardingVisualization('period', tl.c, draw_in_period=True)
+    sv = ShardingVisualization('period', tl.c, draw_in_period=True, show_events=True)
     sv.draw()

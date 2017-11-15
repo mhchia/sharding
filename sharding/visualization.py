@@ -206,10 +206,11 @@ class ShardingVisualization(object):
     EMPTY_TX = '&nbsp;' * 4
     GENESIS_HASH = b'\x00' * 32
 
-    def __init__(self, filename, tester_chain, draw_in_period=False):
+    def __init__(self, filename, tester_chain, draw_in_period=False, show_events=True):
         self.record = tester_chain.record
         self.mainchain = tester_chain.chain
         self.draw_in_period = draw_in_period
+        self.show_events = show_events
         self.min_hash = None
         self.mainchain_caption = "mainchain" if not draw_in_period else "period"
 
@@ -296,21 +297,23 @@ class ShardingVisualization(object):
                 tx_labels_str += ' | '
         if len(label_list) > self.NUM_TX_IN_BLOCK:
             tx_labels_str = '{{' + tx_labels_str + '}}'
-        if len(label_list) != 0:
-            struct_label = '{ %s | %s }' % (caption, tx_labels_str)
-        else:
+        if not self.show_events or len(label_list) == 0:
             struct_label = '{ %s }' % caption
+        else:
+            struct_label = '{ %s | %s }' % (caption, tx_labels_str)
+
         self.g.node(node_name, struct_label, shape=shape)
         self.g.edge(node_name, prev_node_name) # , weight=weight)
 
         # draw event edges
-        for edge in label_edges:
-            label_index, prev_label_index = edge
-            label_index_str = '{}:{}'.format(label_index[0], label_index[1])
-            if prev_label_index is None:
-                continue
-            prev_label_index_str = '{}:{}'.format(prev_label_index[0], prev_label_index[1])
-            self.draw_event_edge(label_index_str, prev_label_index_str)
+        if self.show_events:
+            for edge in label_edges:
+                label_index, prev_label_index = edge
+                label_index_str = '{}:{}'.format(label_index[0], label_index[1])
+                if prev_label_index is None:
+                    continue
+                prev_label_index_str = '{}:{}'.format(prev_label_index[0], prev_label_index[1])
+                self.draw_event_edge(label_index_str, prev_label_index_str)
 
 
     def draw_mainchain(self, chain):
