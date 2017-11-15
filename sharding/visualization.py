@@ -80,9 +80,6 @@ class Record(object):
             prev_label_node_hash = self.tx_label_node_map[prev_label]
         else:
             prev_label_node_hash = None
-            # index = get_shorten_hash(node_hash) + ':' + label
-            # value = get_shorten_hash(prev_label_node_hash) + ':' + prev_label
-            # self.node_label_map[index] = value
         self.node_type[node_hash] = node_type
         obj = {
             'label': label,
@@ -278,21 +275,8 @@ class ShardingVisualization(object):
 
 
     def draw_struct(self, node_name, prev_node_name, height, label_edges, shape, caption):
-        # assert len(txs) <= self.NUM_TX_IN_BLOCK
-
         assert isinstance(height, int)
         label_list = [item[0][1] for item in label_edges]
-        # txs_label = '{'
-        # for i in range(self.NUM_TX_IN_BLOCK):
-        #     if i >= len(label_list):
-        #         txs_label += '<tx{}> '.format(i)
-        #         txs_label += self.EMPTY_TX
-        #     else:
-        #         txs_label += '<{}> '.format(label_list[i])
-        #         txs_label += label_list[i]
-        #     if i != self.NUM_TX_IN_BLOCK - 1:
-        #         txs_label += ' | '
-        # txs_label += '}'
         padding_num = ((len(label_list) // self.NUM_TX_IN_BLOCK) + 1) * self.NUM_TX_IN_BLOCK
         tx_labels_str = ''
         for i in range(padding_num):
@@ -312,7 +296,6 @@ class ShardingVisualization(object):
                 tx_labels_str += ' | '
         if len(label_list) > self.NUM_TX_IN_BLOCK:
             tx_labels_str = '{{' + tx_labels_str + '}}'
-        # label = '{ %s | %s | %s }' % (hash_label, txs_label, prev_label)
         if len(label_list) != 0:
             struct_label = '{ %s | %s }' % (caption, tx_labels_str)
         else:
@@ -331,17 +314,21 @@ class ShardingVisualization(object):
 
 
     def draw_mainchain(self, chain):
+        # TODO: refactor!!
+
+        # add longest chain to the record ####
         current_block = chain.head
         while current_block is not None:
             self.record.add_block(current_block)
             current_period = current_block.header.number // chain.env.config['PERIOD_LENGTH']
             if not self.draw_in_period:
-                self.layers[get_shorten_hash(current_block.header.hash)] = []
+                self.layers[self.get_node_name_from_hash(current_block.header.hash)] = []
             else:
                 self.layers[str(current_period)] = []
             current_block = chain.get_parent(current_block)
 
-        self.min_hash = get_shorten_hash(chain.head.header.hash)
+        # record the highest node name
+        self.min_hash = self.get_node_name_from_hash(chain.head.header.hash)
 
         self.g.node(self.mainchain_caption, shape='none')
         self.layers[self.mainchain_caption] = []
@@ -368,7 +355,7 @@ class ShardingVisualization(object):
                     label_edges,
                     current_block_header.number,
                 )
-                self.layers[get_shorten_hash(current_block_header.hash)] = []
+                self.layers[self.get_node_name_from_hash(current_block_header.hash)] = []
             elif current_block_header.number % chain.env.config['PERIOD_LENGTH'] == 0:
                 self.draw_block(
                     current_block_header.hash,
@@ -382,11 +369,13 @@ class ShardingVisualization(object):
 
 
     def draw_shardchains(self, record):
+        '''Assume that all collations are `add_collation`ed into the `self.record` before this
+            method is called.
+        '''
         for shard_id, collations in record.collations.items():
             shardchain_caption = "shard_" + str(shard_id)
             self.g.node(shardchain_caption, shape='none')
             self.layers[self.mainchain_caption].append(shardchain_caption)
-            # TODO: first insert all collations into record and then iterate them
             collations = record.collations[shard_id]
             for collation_hash, collation in collations.items():
                 if collation_hash == self.GENESIS_HASH:
@@ -396,7 +385,7 @@ class ShardingVisualization(object):
                 prev_hash = collation.header.parent_collation_hash
                 if prev_hash == self.GENESIS_HASH:
                     prev_hash = shardchain_caption
-                period_start_prevhash = get_shorten_hash(
+                period_start_prevhash = self.get_node_name_from_hash(
                     collation.header.period_start_prevhash,
                 )
                 if self.draw_in_period:
