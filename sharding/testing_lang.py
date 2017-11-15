@@ -102,7 +102,6 @@ class TestingLang(object):
     def _mine_and_update_head_collation(self, num_of_blocks):
         for i in range(num_of_blocks):
             block = self.c.mine(1)
-            self.c.record.add_block(block)
         self.update_collations()
 
 

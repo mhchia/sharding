@@ -47,7 +47,8 @@ class Record(object):
         self.node_events = defaultdict(list)
 
         self.blocks = {}
-        self.mainchain_head = None
+        self.mainchain_head_header = None
+        self.mainchain_genesis_header = None
 
         self.collation_matrix = {}
         # collation_hash -> (height, order)
@@ -57,14 +58,14 @@ class Record(object):
 
 
     def add_block(self, block):
-        self.blocks[block.header.hash] = block.header
-        if self.mainchain_head is None or self.mainchain_head.header.number < block.header.number:
-            self.mainchain_head = block
-
-
-    def add_collation_old(self, collation):
-        collation_hash = get_collation_hash(collation)
-        self.collations[collation.header.shard_id][collation_hash] = collation
+        header = block.header
+        self.blocks[header.hash] = header
+        if header.number == 0:
+            self.mainchain_genesis_header = header
+            print('!@# genesis={}'.format(header.hash))
+        if self.mainchain_head_header is None or \
+                self.mainchain_head_header.number < header.number:
+            self.mainchain_head_header = header
 
 
     def mk_event_label(self, label, number):
@@ -171,7 +172,7 @@ class Record(object):
         if is_valid and (len(layer_at_height) == 1):
             self.shard_head[shard_id] = collation
 
-        self.add_collation_old(collation)
+        self.collations[collation.header.shard_id][collation_hash] = collation
         self.collation_validity[collation_hash] = is_valid
         self.collation_coordinate[collation_hash] = (parent_height + 1, insert_index)
 
@@ -316,51 +317,50 @@ class ShardingVisualization(object):
         while current_block is not None:
             self.record.add_block(current_block)
             current_period = current_block.header.number // chain.env.config['PERIOD_LENGTH']
-            current_block = chain.get_parent(current_block)
             if not self.draw_in_period:
                 self.layers[get_shorten_hash(current_block.header.hash)] = []
             else:
                 self.layers[str(current_period)] = []
+            current_block = chain.get_parent(current_block)
 
         self.min_hash = get_shorten_hash(chain.head.header.hash)
 
         self.g.node(self.mainchain_caption, shape='none')
         self.layers[self.mainchain_caption] = []
 
-        current_block = chain.head
         tx_labels_in_current_period = []
-        # TODO: insert blocks into record, and then iterate them
-        while current_block is not None:
-            # draw head
-            prev_block = chain.get_parent(current_block)
-            current_period = current_block.header.number // chain.env.config['PERIOD_LENGTH']
-
-            if prev_block is None:
+        current_block_header = self.record.mainchain_head_header
+        while current_block_header is not None:
+            if current_block_header == self.record.mainchain_genesis_header:
+                prev_block_header = None
                 prev_block_hash = self.mainchain_caption
             else:
-                prev_block_hash = prev_block.header.hash
+                prev_block_header = self.record.blocks[current_block_header.prevhash]
+                prev_block_hash = prev_block_header.hash
 
-            current_block_hash = current_block.header.hash
-            label_edges = self.get_labels_from_node(current_block_hash)
+            current_period = current_block_header.number // chain.env.config['PERIOD_LENGTH']
+
+            label_edges = self.get_labels_from_node(current_block_header.hash)
+
             tx_labels_in_current_period = label_edges + tx_labels_in_current_period
             if not self.draw_in_period:
                 self.draw_block(
-                    current_block_hash,
+                    current_block_header.hash,
                     prev_block_hash,
                     label_edges,
-                    current_block.header.number,
+                    current_block_header.number,
                 )
-                self.layers[get_shorten_hash(current_block_hash)] = []
-            elif current_block.header.number % chain.env.config['PERIOD_LENGTH'] == 0:
+                self.layers[get_shorten_hash(current_block_header.hash)] = []
+            elif current_block_header.number % chain.env.config['PERIOD_LENGTH'] == 0:
                 self.draw_block(
-                    current_block_hash,
+                    current_block_header.hash,
                     prev_block_hash,
                     tx_labels_in_current_period,
                     current_period,
                 )
                 tx_labels_in_current_period = []
                 self.layers[str(current_period)] = []
-            current_block = prev_block
+            current_block_header = prev_block_header
 
 
     def draw_shardchains(self, record):
