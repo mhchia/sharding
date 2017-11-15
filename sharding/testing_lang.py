@@ -311,7 +311,7 @@ class TestingLang(object):
             receipt['data'],
         )
         tx.v, tx.r, tx.s = 1, receipt_id, 0
-        self.c.direct_tx(tx, shard_id=receipt['shard_id'])
+        result = self.c.direct_tx(tx, shard_id=receipt['shard_id'])
 
 
     def mk_transaction(self, param_str):
@@ -365,7 +365,6 @@ class TestingLang(object):
         ret_addr = utils.privtoaddr(utils.sha3("ret_addr"))
         self.c.sharding_deposit(privkey, valcode_addr)
         self.current_validators[valcode_addr] = validator_index
-        tx = self.c.block.transactions[-1]
 
 
     def withdraw_validator(self, param_str):
@@ -381,4 +380,3 @@ class TestingLang(object):
         )
         if not result:
             raise ValueError("Withdraw failed")
-        tx = self.c.block.transactions[-1]

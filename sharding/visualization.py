@@ -49,7 +49,7 @@ class Record(object):
         self.blocks = {}
         self.mainchain_head = None
 
-        self.collation_map = {}
+        self.collation_matrix = {}
         # collation_hash -> (height, order)
         self.collation_coordinate = {}
         self.shard_head = {}
@@ -57,7 +57,7 @@ class Record(object):
 
 
     def add_block(self, block):
-        self.blocks[block.header.hash] = block
+        self.blocks[block.header.hash] = block.header
         if self.mainchain_head is None or self.mainchain_head.header.number < block.header.number:
             self.mainchain_head = block
 
@@ -149,10 +149,10 @@ class Record(object):
         parent_collation_hash = collation.header.parent_collation_hash
         parent_height, parent_kth = self.collation_coordinate[parent_collation_hash]
         shard_id = collation.header.shard_id
-        shard_collation_map = self.collation_map[shard_id]
+        shard_collation_matrix = self.collation_matrix[shard_id]
         insert_index = 0
         try:
-            layer_at_height = shard_collation_map[parent_height + 1]
+            layer_at_height = shard_collation_matrix[parent_height + 1]
             while insert_index < len(layer_at_height):
                 node = layer_at_height[insert_index]
                 node_parent_hash = node.header.parent_collation_hash
@@ -162,7 +162,7 @@ class Record(object):
                 insert_index += 1
         except IndexError:
             layer_at_height = []
-            shard_collation_map.append(layer_at_height)
+            shard_collation_matrix.append(layer_at_height)
 
         layer_at_height.insert(insert_index, collation)
 
@@ -181,7 +181,7 @@ class Record(object):
 
 
     def init_shard(self, shard_id):
-        self.collation_map[shard_id] = [[None]]
+        self.collation_matrix[shard_id] = [[None]]
         self.collation_coordinate[GENESIS_HASH] = (0, 0)
 
 
@@ -190,7 +190,7 @@ class Record(object):
 
 
     def get_collation_hash_by_coordinate(self, shard_id, parent_kth, parent_height):
-        collation = self.collation_map[shard_id][parent_height][parent_kth]
+        collation = self.collation_matrix[shard_id][parent_height][parent_kth]
         return get_collation_hash(collation)
 
 
@@ -214,8 +214,6 @@ class ShardingVisualization(object):
         self.draw_in_period = draw_in_period
         self.min_hash = None
         self.mainchain_caption = "mainchain" if not draw_in_period else "period"
-        # FIXME: dirty way to record the period of a block hash
-        self.block_shorten_hash_to_period = {}
 
         self.layers = {}
         self.g = gv.Digraph('G', filename=filename)
@@ -246,11 +244,12 @@ class ShardingVisualization(object):
 
 
     def get_node_name_from_hash(self, node_hash):
+        if self.draw_in_period and \
+                node_hash in self.record.blocks.keys():
+            block_number = self.record.blocks[node_hash].number
+            return str(block_number // self.mainchain.env.config['PERIOD_LENGTH'])
         if isinstance(node_hash, bytes):
             node_hash = get_shorten_hash(node_hash)
-        if self.draw_in_period and \
-                node_hash in self.block_shorten_hash_to_period.keys():
-            node_hash = self.block_shorten_hash_to_period[node_hash]
         return node_hash
 
 
@@ -309,36 +308,39 @@ class ShardingVisualization(object):
             if prev_label_index is None:
                 continue
             prev_label_index_str = '{}:{}'.format(prev_label_index[0], prev_label_index[1])
-            # self.draw_event_edge(label_index_str, prev_label_index_str)
+            self.draw_event_edge(label_index_str, prev_label_index_str)
 
 
     def draw_mainchain(self, chain):
         current_block = chain.head
-        self.min_hash = get_shorten_hash(current_block.header.hash)
+        while current_block is not None:
+            self.record.add_block(current_block)
+            current_period = current_block.header.number // chain.env.config['PERIOD_LENGTH']
+            current_block = chain.get_parent(current_block)
+            if not self.draw_in_period:
+                self.layers[get_shorten_hash(current_block.header.hash)] = []
+            else:
+                self.layers[str(current_period)] = []
+
+        self.min_hash = get_shorten_hash(chain.head.header.hash)
 
         self.g.node(self.mainchain_caption, shape='none')
         self.layers[self.mainchain_caption] = []
 
+        current_block = chain.head
         tx_labels_in_current_period = []
         # TODO: insert blocks into record, and then iterate them
         while current_block is not None:
             # draw head
             prev_block = chain.get_parent(current_block)
             current_period = current_block.header.number // chain.env.config['PERIOD_LENGTH']
-            if current_period == 0:
-                prev_period = self.mainchain_caption
-            else:
-                prev_period = current_period - 1
+
             if prev_block is None:
                 prev_block_hash = self.mainchain_caption
             else:
                 prev_block_hash = prev_block.header.hash
-                self.block_shorten_hash_to_period[get_shorten_hash(prev_block_hash)] = \
-                    str(prev_period)
 
             current_block_hash = current_block.header.hash
-            self.block_shorten_hash_to_period[get_shorten_hash(current_block_hash)] = \
-                str(current_period)
             label_edges = self.get_labels_from_node(current_block_hash)
             tx_labels_in_current_period = label_edges + tx_labels_in_current_period
             if not self.draw_in_period:
@@ -348,12 +350,12 @@ class ShardingVisualization(object):
                     label_edges,
                     current_block.header.number,
                 )
-                self.layers[current_block_hash] = []
+                self.layers[get_shorten_hash(current_block_hash)] = []
             elif current_block.header.number % chain.env.config['PERIOD_LENGTH'] == 0:
                 self.draw_block(
                     current_block_hash,
                     prev_block_hash,
-                    label_edges,
+                    tx_labels_in_current_period,
                     current_period,
                 )
                 tx_labels_in_current_period = []
