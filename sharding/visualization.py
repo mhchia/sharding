@@ -17,10 +17,10 @@ LABEL_ADD_HEADER = 'AH'
 LEN_HASH = 8
 
 
-def get_collation_hash(collation):
-    if collation is None:
+def get_collation_hash(collation_header):
+    if collation_header is None:
         return GENESIS_HASH
-    return collation.header.hash
+    return collation_header.hash
 
 
 def get_shorten_hash(hash_bytes32):
@@ -144,16 +144,17 @@ class Record(object):
 
 
     def add_collation(self, collation, is_valid=True):
-        parent_collation_hash = collation.header.parent_collation_hash
+        collation_header = collation.header
+        parent_collation_hash = collation_header.parent_collation_hash
         parent_height, parent_kth = self.collation_coordinate[parent_collation_hash]
-        shard_id = collation.header.shard_id
+        shard_id = collation_header.shard_id
         shard_collation_matrix = self.collation_matrix[shard_id]
         insert_index = 0
         try:
             layer_at_height = shard_collation_matrix[parent_height + 1]
             while insert_index < len(layer_at_height):
-                node = layer_at_height[insert_index]
-                node_parent_hash = node.header.parent_collation_hash
+                node_header = layer_at_height[insert_index]
+                node_parent_hash = node_header.parent_collation_hash
                 node_height, node_parent_kth = self.collation_coordinate[node_parent_hash]
                 if node_parent_kth > parent_kth:
                     break
@@ -162,14 +163,14 @@ class Record(object):
             layer_at_height = []
             shard_collation_matrix.append(layer_at_height)
 
-        layer_at_height.insert(insert_index, collation)
+        layer_at_height.insert(insert_index, collation_header)
 
-        collation_hash = get_collation_hash(collation)
+        collation_hash = get_collation_hash(collation_header)
         # if it is the longest chain, set it as the shard head
         if is_valid and (len(layer_at_height) == 1):
-            self.shard_head[shard_id] = collation
+            self.shard_head[shard_id] = collation_header
 
-        self.collations[collation.header.shard_id][collation_hash] = collation
+        self.collations[collation_header.shard_id][collation_hash] = collation_header
         self.collation_validity[collation_hash] = is_valid
         self.collation_coordinate[collation_hash] = (parent_height + 1, insert_index)
 
@@ -380,19 +381,19 @@ class ShardingVisualization(object):
             self.g.node(shardchain_caption, shape='none')
             self.layers[self.mainchain_caption].append(shardchain_caption)
             collations = record.collations[shard_id]
-            for collation_hash, collation in collations.items():
+            for collation_hash, collation_header in collations.items():
                 if collation_hash == self.GENESIS_HASH:
                     continue
                 height, order = self.record.get_collation_coordinate_by_hash(collation_hash)
                 name = self.get_node_name_from_hash(collation_hash)
-                prev_hash = collation.header.parent_collation_hash
+                prev_hash = collation_header.parent_collation_hash
                 if prev_hash == self.GENESIS_HASH:
                     prev_hash = shardchain_caption
                 period_start_prevhash = self.get_node_name_from_hash(
-                    collation.header.period_start_prevhash,
+                    collation_header.period_start_prevhash,
                 )
                 if self.draw_in_period:
-                    self.layers[str(collation.header.expected_period_number)].append(name)
+                    self.layers[str(collation_header.expected_period_number)].append(name)
                 else:
                     self.layers[period_start_prevhash].append(name)
                 label_edges = self.get_labels_from_node(collation_hash)
