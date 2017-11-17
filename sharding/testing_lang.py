@@ -184,7 +184,6 @@ class TestingLang(object):
             rlp.encode(collation.header),
         )
         self.c.direct_tx(tx)
-        self.c.record.add_collation(collation)
         # `add_collation` to trigger callback functions in `invalid_collation_listeners`
         period_start_prevblock = self.c.chain.get_block(collation.header.period_start_prevhash)
         self.c.chain.shards[shard_id].add_collation(
@@ -217,7 +216,6 @@ class TestingLang(object):
 
         if not self.c.chain.has_shard(shard_id):
             self.c.add_test_shard(shard_id)
-            self.c.record.init_shard(shard_id)
 
         if len_params_list == 1:
             collation = self.c.collate(shard_id, collator_privkey)
@@ -250,7 +248,8 @@ class TestingLang(object):
                 rlp.encode(collation.header),
             )
             self.c.direct_tx(tx)
-        self.c.record.add_collation(collation)
+        if (1, 1) == self.c.record.get_collation_coordinate_by_hash(collation.header.hash):
+            print('!@# find RC1:', collation.transactions)
 
         # FIXME: why parent_collation_hash=self.c.chain.shards[shard_id].head.hash doesn't work?
         self.c.set_collation(

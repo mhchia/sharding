@@ -64,6 +64,8 @@ class ShardChain(object):
         self.collation_blockhash_lists = defaultdict(list)    # M1: collation_header_hash -> list[blockhash]
         self.head_collation_of_block = {}   # M2: blockhash -> head_collation
         self.main_chain = main_chain
+
+        self.add_collation_listeners = []
         self.invalid_collation_listeners = []
         self.processing_collation = None
 
@@ -142,6 +144,8 @@ class ShardChain(object):
             if self.is_first_collation(collation):
                 log.debug('It is the first collation of shard {}'.format(self.shard_id))
             temp_state = self.mk_poststate_of_collation_hash(collation.header.parent_collation_hash)
+            self.call_add_collation_listeners(collation=collation)
+            print("!@# add_collation: len(temp_state.log_listeners)={}".format(len(temp_state.log_listeners)))
             try:
                 apply_collation(
                     temp_state, collation, period_start_prevblock,
@@ -150,7 +154,7 @@ class ShardChain(object):
                 )
             except (AssertionError, KeyError, ValueError, InvalidTransaction, VerificationFailed) as e:
                 print("!@# invalid_collation: in add_collation")
-                self.call_listeners(collation=collation)
+                self.call_invalid_collation_listeners(collation=collation)
                 log.info('Collation %s with parent %s invalid, reason: %s' %
                          (encode_hex(collation.header.hash), encode_hex(collation.header.parent_collation_hash), str(e)))
                 return False
@@ -338,6 +342,10 @@ class ShardChain(object):
             output[decode_hex(blockhash)] = decode_hex(collhash)
         return output
 
-    def call_listeners(self, *args, **kwargs):
+    def call_invalid_collation_listeners(self, *args, **kwargs):
         for func in self.invalid_collation_listeners:
+            func(*args, **kwargs)
+
+    def call_add_collation_listeners(self, *args, **kwargs):
+        for func in self.add_collation_listeners:
             func(*args, **kwargs)

@@ -35,6 +35,7 @@ class Record(object):
 
     def __init__(self):
         self.collations = defaultdict(dict)
+        self.tx_hashes_in_collation = {}
         # 'label' -> 'node_name'
         self.tx_label_node_map = {}
         # 'hash:label' -> previous 'hash:label'
@@ -47,6 +48,7 @@ class Record(object):
         self.node_events = defaultdict(list)
 
         self.blocks = {}
+        self.tx_hashes_in_block = {}
         self.mainchain_head_header = None
         self.mainchain_genesis_header = None
 
@@ -60,6 +62,10 @@ class Record(object):
     def add_block(self, block):
         header = block.header
         self.blocks[header.hash] = header
+
+        tx_hashes = [tx.hash for tx in block.transactions]
+        self.tx_hashes_in_block[header.hash] = tx_hashes
+
         if header.number == 0:
             self.mainchain_genesis_header = header
             print('!@# genesis={}'.format(header.hash))
@@ -153,18 +159,22 @@ class Record(object):
 
         shard_collation_matrix = self.collation_matrix[shard_id]
         insert_index = 0
-        try:
-            layer_at_height = shard_collation_matrix[parent_height + 1]
-            while insert_index < len(layer_at_height):
-                node_header = layer_at_height[insert_index]
-                node_parent_hash = node_header.parent_collation_hash
-                node_height, node_parent_kth = self.collation_coordinate[node_parent_hash]
-                if node_parent_kth > parent_kth:
-                    break
-                insert_index += 1
-        except IndexError:
-            layer_at_height = []
-            shard_collation_matrix.append(layer_at_height)
+
+        # insert empty lists when the matrix is not high enough
+        # TODO: this should only occurs when an orphan collation arrives
+        while True:
+            if len(shard_collation_matrix) > (parent_height + 1):
+                break
+            shard_collation_matrix.append([])
+
+        layer_at_height = shard_collation_matrix[parent_height + 1]
+        while insert_index < len(layer_at_height):
+            node_header = layer_at_height[insert_index]
+            node_parent_hash = node_header.parent_collation_hash
+            node_height, node_parent_kth = self.collation_coordinate[node_parent_hash]
+            if node_parent_kth > parent_kth:
+                break
+            insert_index += 1
 
         layer_at_height.insert(insert_index, collation_header)
 
@@ -172,6 +182,9 @@ class Record(object):
         # if it is the longest chain, set it as the shard head
         if is_valid and (len(layer_at_height) == 1):
             self.shard_head[shard_id] = collation_header
+
+        tx_hashes = [tx.hash for tx in collation.transactions]
+        self.tx_hashes_in_collation[collation_hash] = tx_hashes
 
         self.collations[collation_header.shard_id][collation_hash] = collation_header
         self.collation_validity[collation_hash] = is_valid

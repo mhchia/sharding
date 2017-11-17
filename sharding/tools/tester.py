@@ -647,15 +647,19 @@ class Chain(object):
                 print("!@# log_listeners watcher receipt-consuming: hash={}, receipt_id={}".format(
                     processing_collation_hash, receipt_id
                 ))
-        print("!@# set_shardchain_watcher={}".format(shard_id))
         # self.shard_head_state[shard_id].log_listeners.append(receipt_consuming_event_watcher)
         self.chain.shards[shard_id].state.log_listeners.append(receipt_consuming_event_watcher)
 
-        def invalid_collation_watcher(collation):
+        def add_collation_handler(collation):
+            self.record.add_collation(collation)
+
+        def invalid_collation_handler(collation):
             self.record.set_collation_invalid(collation.header.hash)
-        self.chain.shards[shard_id].invalid_collation_listeners.append(invalid_collation_watcher)
-        print('!@# log_listeners head_state:', len(self.shard_head_state[shard_id].log_listeners))
-        print('!@# log_listeners state:', len(self.chain.shards[shard_id].state.log_listeners))
+
+        self.chain.shards[shard_id].add_collation_listeners.append(add_collation_handler)
+        self.chain.shards[shard_id].invalid_collation_listeners.append(invalid_collation_handler)
+        # print('!@# log_listeners head_state:', len(self.shard_head_state[shard_id].log_listeners))
+        # print('!@# log_listeners state:', len(self.chain.shards[shard_id].state.log_listeners))
 
 
 def int_to_0x_hex(v):
