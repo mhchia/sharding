@@ -342,7 +342,7 @@ class MainChain(Chain):
             # Set head
             shard.head_hash = shard.head_collation_of_block[self.head_hash]
             shard.state = shard.mk_poststate_of_collation_hash(shard.head_hash)
-            shard.state.log_listeners = log_listeners
+            # shard.state.log_listeners = log_listeners
         else:
             # The given block doesn't contain a collation
             self._reorganize_all_shards(block)

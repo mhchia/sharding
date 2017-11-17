@@ -554,7 +554,7 @@ class Chain(object):
         # [sha3("tx_to_shard()"), as_bytes32(to), as_bytes32(shard_id)], as_bytes32(receipt_id)
         receipt_topic = utils.sha3("tx_to_shard()")
 
-        def add_header_watcher(log):
+        def add_header_handler(log):
             if log.topics[0] == utils.big_endian_to_int(add_header_topic) and \
                     len(log.topics) == 1:
                 print("!@# watcher add_header=", log.data)
@@ -572,14 +572,15 @@ class Chain(object):
                     binary,
                 ])
                 values = rlp.decode(log.data, sedes)
+                collation_header = CollationHeader(*values)
                 number = values[8]
                 processing_block_hash = self.get_processing_block_hash()
                 self.record.add_add_header_by_node(processing_block_hash, number)
-                print("!@# watcher add_header: processing_block={}".format(
-                    processing_block_hash
+                print("!@# watcher add_header: collation_header={}".format(
+                    collation_header.to_dict()
                 ))
 
-        def change_head_watcher(log):
+        def change_head_handler(log):
             if log.topics[0] == utils.big_endian_to_int(add_header_topic) and \
                     len(log.topics) > 1 and \
                     log.topics[1] == utils.big_endian_to_int(utils.sha3("change_head")):
@@ -587,35 +588,59 @@ class Chain(object):
                 previous_head_hash = log.data.hex()[:8]
                 print("!@# watcher change_head change_head={}, previous_head={}".format(current_head_hash, previous_head_hash))
 
-        def deposit_event_watcher(log):
+        def deposit_event_handler(log):
             if log.topics[0] == utils.big_endian_to_int(deposit_topic):
                 validator_index = utils.big_endian_to_int(log.data)
                 processing_block_hash = self.get_processing_block_hash()
                 self.record.add_deposit_by_node(processing_block_hash, validator_index)
                 print("!@# watcher deposit")
 
-        def withdraw_event_watcher(log):
+        def withdraw_event_handler(log):
             if log.topics[0] == utils.big_endian_to_int(withdraw_topic):
                 validator_index = utils.big_endian_to_int(log.data)
                 processing_block_hash = self.get_processing_block_hash()
                 self.record.add_withdraw_by_node(processing_block_hash, validator_index)
                 print("!@# watcher withdraw")
 
-        def receipt_event_watcher(log):
+        def receipt_event_handler(log):
             if log.topics[0] == utils.big_endian_to_int(receipt_topic):
                 receipt_id = utils.big_endian_to_int(log.data)
                 processing_block_hash = self.get_processing_block_hash()
                 self.record.add_receipt_by_node(processing_block_hash, receipt_id)
                 print("!@# watcher receipt")
 
-        watcher_list = [
-            add_header_watcher,
-            change_head_watcher,
-            deposit_event_watcher,
-            withdraw_event_watcher,
-            receipt_event_watcher,
+        def deposit_event_handler_in_head_state(log):
+            if log.topics[0] == utils.big_endian_to_int(deposit_topic):
+                validator_index = utils.big_endian_to_int(log.data)
+                processing_tx = self.last_tx
+                self.record.add_deposit_by_tx(processing_tx.hash, validator_index)
+
+        def withdraw_event_handler_in_head_state(log):
+            if log.topics[0] == utils.big_endian_to_int(withdraw_topic):
+                validator_index = utils.big_endian_to_int(log.data)
+                processing_tx = self.last_tx
+                self.record.add_withdraw_by_tx(processing_tx.hash, validator_index)
+
+        def receipt_event_handler_in_head_state(log):
+            if log.topics[0] == utils.big_endian_to_int(receipt_topic):
+                receipt_id = utils.big_endian_to_int(log.data)
+                processing_tx = self.last_tx
+                self.record.add_withdraw_by_tx(processing_tx.hash, receipt_id)
+
+        handler_list = [
+            add_header_handler,
+            change_head_handler,
+            deposit_event_handler,
+            withdraw_event_handler,
+            receipt_event_handler,
         ]
-        self.chain.state.log_listeners += watcher_list
+        self.chain.state.log_listeners += handler_list
+        handler_in_head_state_list = [
+            deposit_event_handler_in_head_state,
+            withdraw_event_handler_in_head_state,
+            receipt_event_handler_in_head_state,
+        ]
+        # self.head_state.log_listeners += handler_in_head_state_list
 
 
     def get_processing_collation_hash(self, shard_id):
@@ -634,7 +659,7 @@ class Chain(object):
 
         assert self.chain.has_shard(shard_id)
 
-        def receipt_consuming_event_watcher(log):
+        def receipt_consuming_event_handler(log):
             if log.topics[0] == utils.big_endian_to_int(receipt_consuming_topic):
                 receipt_id = utils.big_endian_to_int(log.data)
                 processing_collation_hash = self.get_processing_collation_hash(shard_id)
@@ -647,8 +672,19 @@ class Chain(object):
                 print("!@# log_listeners watcher receipt-consuming: hash={}, receipt_id={}".format(
                     processing_collation_hash, receipt_id
                 ))
-        # self.shard_head_state[shard_id].log_listeners.append(receipt_consuming_event_watcher)
-        self.chain.shards[shard_id].state.log_listeners.append(receipt_consuming_event_watcher)
+
+        def receipt_consuming_event_handler_in_head_state(log):
+            '''Used to link each event to its origin transaction
+            '''
+            if log.topics[0] == utils.big_endian_to_int(receipt_consuming_topic):
+                receipt_id = utils.big_endian_to_int(log.data)
+                processing_tx = self.shard_last_tx[shard_id]
+                self.record.add_receipt_consuming_by_tx(processing_tx.hash, receipt_id)
+
+        self.shard_head_state[shard_id].log_listeners.append(
+            receipt_consuming_event_handler_in_head_state,
+        )
+        # self.chain.shards[shard_id].state.log_listeners.append(receipt_consuming_event_handler)
 
         def add_collation_handler(collation):
             self.record.add_collation(collation)
@@ -724,7 +760,13 @@ def get_shard_head_state(
         expected_period_number,
         period_start_prevhash,
         parent_collation_hash):
+    # TODO: see if there are better ways to keep `log_listeners` in `shard_head_state`
+    if shard_id in test_chain.shard_head_state:
+        log_listeners = test_chain.shard_head_state[shard_id].log_listeners
+    else:
+        log_listeners = []
     shard_head_state = test_chain.chain.shards[shard_id].mk_poststate_of_collation_hash(parent_collation_hash)
+    shard_head_state.log_listeners = log_listeners
     period_start_prevhash = test_chain.get_period_start_prevhash(expected_period_number)
     period_start_prevblock = test_chain.chain.get_block(period_start_prevhash)
     assert period_start_prevblock is not None

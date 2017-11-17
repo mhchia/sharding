@@ -35,9 +35,12 @@ class Record(object):
 
     def __init__(self):
         self.collations = defaultdict(dict)
-        self.tx_hashes_in_collation = {}
+
+        self.tx_hashes_in_node = {}
+        # tx_hash -> event_label
+        self.tx_hash_to_event = {}
         # 'label' -> 'node_name'
-        self.tx_label_node_map = {}
+        self.tx_label_to_node_hash = {}
         # 'hash:label' -> previous 'hash:label'
         self.node_label_map = {}
         # [{'shard_id', 'startgas', 'gasprice', 'to', 'value', 'data'}, ...]
@@ -48,7 +51,6 @@ class Record(object):
         self.node_events = defaultdict(list)
 
         self.blocks = {}
-        self.tx_hashes_in_block = {}
         self.mainchain_head_header = None
         self.mainchain_genesis_header = None
 
@@ -64,7 +66,8 @@ class Record(object):
         self.blocks[header.hash] = header
 
         tx_hashes = [tx.hash for tx in block.transactions]
-        self.tx_hashes_in_block[header.hash] = tx_hashes
+        self.tx_hashes_in_node[header.hash] = tx_hashes
+        # self.add_block_events(block)
 
         if header.number == 0:
             self.mainchain_genesis_header = header
@@ -80,10 +83,10 @@ class Record(object):
 
     def add_event_by_node(self, node_hash, event, number, node_type):
         label = self.mk_event_label(event, number)
-        self.tx_label_node_map[label] = node_hash
+        self.tx_label_to_node_hash[label] = node_hash
         prev_label = self.get_prev_label(label)
         if prev_label is not None:
-            prev_label_node_hash = self.tx_label_node_map[prev_label]
+            prev_label_node_hash = self.tx_label_to_node_hash[prev_label]
         else:
             prev_label_node_hash = None
         self.node_type[node_hash] = node_type
@@ -121,7 +124,49 @@ class Record(object):
 
 
     def add_receipt_consuming_by_node(self, node_hash, number):
+        print("!@# add_receipt_consuming node_hash={}, label={}".format(
+            node_hash,
+            LABEL_RECEIPT_CONSUMING + str(number),
+        ))
         self.add_event_in_collation(node_hash, LABEL_RECEIPT_CONSUMING, number)
+
+
+    def add_event_by_tx(self, tx_hash, event, number):
+        label = self.mk_event_label(event, number)
+        print("!@# add_event_by_tx: {}".format(label))
+        self.tx_hash_to_event[tx_hash] = (event, number)
+
+
+    def add_deposit_by_tx(self, tx_hash, number):
+        self.add_event_by_tx(tx_hash, LABEL_DEPOSIT, number)
+
+
+    def add_withdraw_by_tx(self, tx_hash, number):
+        self.add_event_by_tx(tx_hash, LABEL_WITHDRAW, number)
+
+
+    def add_receipt_by_tx(self, tx_hash, number):
+        self.add_event_by_tx(tx_hash, LABEL_RECEIPT, number)
+
+
+    def add_receipt_consuming_by_tx(self, tx_hash, number):
+        self.add_event_by_tx(tx_hash, LABEL_RECEIPT_CONSUMING, number)
+
+
+    def add_block_events(self, block):
+        self.add_node_events(block, self.TYPE_BLOCK)
+
+
+    def add_collation_events(self, collation):
+        self.add_node_events(collation, self.TYPE_COLLATION)
+
+
+    def add_node_events(self, node, node_type):
+        self.node_events[node.header.hash] = []
+        for tx in node.transactions:
+            if tx.hash in self.tx_hash_to_event:
+                event, number = self.tx_hash_to_event[tx.hash]
+                self.add_event_by_node(node.header.hash, event, number, node_type)
 
 
     def get_tx_labels_from_node(self, node_hash):
@@ -184,7 +229,8 @@ class Record(object):
             self.shard_head[shard_id] = collation_header
 
         tx_hashes = [tx.hash for tx in collation.transactions]
-        self.tx_hashes_in_collation[collation_hash] = tx_hashes
+        self.tx_hashes_in_node[collation_hash] = tx_hashes
+        self.add_collation_events(collation)
 
         self.collations[collation_header.shard_id][collation_hash] = collation_header
         self.collation_validity[collation_hash] = is_valid
