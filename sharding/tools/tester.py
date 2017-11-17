@@ -222,6 +222,11 @@ class Chain(object):
         self.shard_last_tx = {}
         self.add_header_logs = []
 
+        # record for visualization
+        self.record = Record()
+        genesis_block = self.chain.get_block_by_number(0)
+        self.record.add_block(genesis_block)
+
         # validator manager contract and other pre-compiled contracts
         self.is_sharding_contracts_deployed = False
         if deploy_sharding_contracts:
@@ -230,8 +235,6 @@ class Chain(object):
             self.last_sender = k0
             self.mine(1)
 
-        # record for visualization
-        self.record = Record()
         self.set_mainchain_event_watchers()
 
     def direct_tx(self, transaction, shard_id=None):
@@ -285,6 +288,7 @@ class Chain(object):
         self.block = Miner(self.block).mine(rounds=100, start_nonce=0)
         assert self.chain.add_block(self.block)
         b = self.block
+        self.record.add_block(b)
 
         # Reorganize head collation
         collation = None
@@ -305,6 +309,7 @@ class Chain(object):
             b, _ = make_head_candidate(self.chain, parent=b, timestamp=self.chain.state.timestamp + 14, coinbase=coinbase)
             b = Miner(b).mine(rounds=100, start_nonce=0)
             assert self.chain.add_block(b)
+            self.record.add_block(b)
             self.chain.reorganize_head_collation(b, None)
 
         self.change_head(b.header.hash, coinbase)
@@ -530,14 +535,15 @@ class Chain(object):
             self.direct_tx(tx, shard_id=shard_id)
         self.shard_last_tx[shard_id], self.shard_last_sender[shard_id] = txs[-1], None
 
-
     def get_processing_block_hash(self):
         block = self.chain.processing_block
         assert block is not None
         return block.header.hash
 
-
     def set_mainchain_event_watchers(self):
+        '''Set event handlers only to `chain.state`. We only want to get the events occurs on the
+            longest chain.
+        '''
         # [sha3("add_header()")], header)
         # [sha3("add_header()"), sha3("change_head"), entire_header_hash], concat('', previous_head_hash))
         add_header_topic = utils.sha3("add_header()")

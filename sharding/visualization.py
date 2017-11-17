@@ -323,16 +323,17 @@ class ShardingVisualization(object):
     def draw_mainchain(self, chain):
         # TODO: refactor!!
 
-        # add longest chain to the record ####
-        current_block = chain.head
-        while current_block is not None:
-            self.record.add_block(current_block)
-            current_period = current_block.header.number // chain.env.config['PERIOD_LENGTH']
+        # Preprocessing: set up `self.layers` for ranking the whole graph
+        current_block_header = self.record.mainchain_head_header
+        while True:
+            current_period = current_block_header.number // chain.env.config['PERIOD_LENGTH']
             if not self.draw_in_period:
-                self.layers[self.get_node_name_from_hash(current_block.header.hash)] = []
+                self.layers[self.get_node_name_from_hash(current_block_header.hash)] = []
             else:
                 self.layers[str(current_period)] = []
-            current_block = chain.get_parent(current_block)
+            if current_block_header == self.record.mainchain_genesis_header:
+                break
+            current_block_header = self.record.blocks[current_block_header.prevhash]
 
         # record the highest node name
         self.min_hash = self.get_node_name_from_hash(chain.head.header.hash)
