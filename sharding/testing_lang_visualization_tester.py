@@ -15,37 +15,37 @@ def test_visualization():
         D0
         R0
         R0
-        B25
+        B25 #6
         C0
         R0
         R0
-        B5
+        B5 #7
         RC0
         C0
         R0
-        B5
+        B5 #8
         RC1
         C0,0,0
-        B5
+        B5 #9
         RC2
         C0,1,0
         R0
-        B5
+        B5 #10
         C0,1,1
-        B5
+        B5 #11
         C0
-        B5
+        B5 #12
         IC0,0,0
-        B5
+        B5 #13
         IC0,1,1
-        B5
+        B5 #14
         C1
-        B5
+        B5 #15
         RC3
         C0,2,1
-        B5
+        B5 #16
         C0,3,1
-        B5
+        B5 #17
     """
     cmd = """
         D0
