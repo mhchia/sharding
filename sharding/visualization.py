@@ -161,7 +161,7 @@ class Record(object):
         insert_index = 0
 
         # insert empty lists when the matrix is not high enough
-        # TODO: this should only occurs when an orphan collation arrives
+        # TODO: better way to do this?
         while True:
             if len(shard_collation_matrix) > (parent_height + 1):
                 break
