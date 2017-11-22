@@ -1,58 +1,76 @@
-import json
-
 from ethereum import utils
 from ethereum.tools import tester as t
 import rlp
+from solc import compile_source
+from viper import compiler
 from web3 import Web3, HTTPProvider, TestRPCProvider
 from web3.contract import ConciseContract
-from viper import compiler
 
 from sharding import validator_manager_utils
 
-w3 = Web3(HTTPProvider('http://localhost:8545'))
+
 # web3 = Web3(IPCProvider())
 # web3 = Web3(TestRPCProvider())
 
-vmc_addr = utils.checksum_encode(validator_manager_utils.get_valmgr_addr())
-vmc_bytecode = validator_manager_utils.get_valmgr_bytecode()
-vmc_code = validator_manager_utils.get_valmgr_code()
-vmc_interface = compiler.mk_full_signature(vmc_code)
-vmc_ct = validator_manager_utils.get_valmgr_ct()
-print(vmc_interface)
-# print(bytecode)
+
+class RPCHandler:
+
+    RPC_SERVER_URL = 'http://localhost:8545'
+
+    def __init__(self):
+        self.set_attributes()
+        self.setup_contract_instance()
 
 
-
-# print(w3.personal.listAccounts)
-
-# for key in t.keys:
-#     try:
-#         w3.personal.importRawKey(key, '123')
-#     except ValueError:
-#         pass
-
-# result = w3.personal.unlockAccount(utils.checksum_encode(t.a0), '123')
-# print(result)
-
-vmc_tx = validator_manager_utils.get_valmgr_tx()
-raw_vmc_tx = rlp.encode(vmc_tx)
-raw_vmc_tx_hex = w3.toHex(raw_vmc_tx)
-try:
-    w3.eth.sendRawTransaction(raw_vmc_tx_hex)
-except ValueError:
-    pass
-
-# ContractFactory = w3.eth.contract(abi=json.dumps(vmc_interface))
-# ContractFactory = w3.eth.contract(abi=vmc_interface)
-# vmc = ContractFactory(vmc_addr)
-# result = vmc.call().sample(0)
-
-vmc = w3.eth.contract(vmc_addr, abi=vmc_interface, ContractFactoryClass=ConciseContract)
-result = vmc.call().sample(0)
-print(result)
-
-# print(utils.checksum_encode(validator_manager_utils.get_valmgr_sender_addr()))
+    def set_attributes(self):
+        self._vmc_addr = utils.checksum_encode(validator_manager_utils.get_valmgr_addr())
+        self._vmc_bytecode = validator_manager_utils.get_valmgr_bytecode()
+        self._vmc_code = validator_manager_utils.get_valmgr_code()
+        self._vmc_abi = compiler.mk_full_signature(self._vmc_code)
+        self._vmc_ct = validator_manager_utils.get_valmgr_ct()
 
 
-# w3.eth.start(1)
-# print(len(t.k0))
+    def is_vmc_deployed(self):
+        return self._w3.eth.getCode(self._vmc_addr) != b''
+
+
+    def deploy_vmc(self):
+        vmc_tx = validator_manager_utils.get_valmgr_tx()
+        raw_vmc_tx = rlp.encode(vmc_tx)
+        raw_vmc_tx_hex = self._w3.toHex(raw_vmc_tx)
+        try:
+            result = self._w3.eth.sendRawTransaction(raw_vmc_tx_hex)
+            print('!@# result:', result)
+        except ValueError as e:
+            print(e)
+            pass
+
+
+    def setup_contract_instance(self):
+        self._w3 = Web3(HTTPProvider(self.RPC_SERVER_URL))
+        if not self.is_vmc_deployed():
+            self.deploy_vmc()
+        self._vmc = self._w3.eth.contract(
+            self._vmc_addr,
+            abi=self._vmc_abi,
+            bytecode=self._vmc_bytecode,
+        )
+
+
+    def sample(self, shard_id):
+        return self._vmc.call().sample(shard_id)
+
+
+def print_current_contract_address(sender_address):
+    list_addresses = [
+        utils.checksum_encode(utils.mk_contract_address(t.a0, i)) for i in range(nonce + 1)
+    ]
+    print(list_addresses)
+
+
+def main():
+    rpc = RPCHandler()
+
+
+if __name__ == '__main__':
+    main()
