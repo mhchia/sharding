@@ -62,6 +62,7 @@ sighasher_addr: address
 # log the latest period number of the shard
 period_head: public(num[num])
 
+@public
 def __init__():
     self.num_validators = 0
     self.empty_slots_stack_top = 0
@@ -76,15 +77,18 @@ def __init__():
     self.sighasher_addr = 0xDFFD41E18F04Ad8810c83B14FD1426a82E625A7D
 
 
+@internal
 def is_stack_empty() -> bool:
     return (self.empty_slots_stack_top == 0)
 
 
+@internal
 def stack_push(index: num):
     self.empty_slots_stack[self.empty_slots_stack_top] = index
     self.empty_slots_stack_top += 1
 
 
+@internal
 def stack_pop() -> num:
     if self.is_stack_empty():
         return -1
@@ -92,6 +96,7 @@ def stack_pop() -> num:
     return self.empty_slots_stack[self.empty_slots_stack_top]
 
 
+@public
 def get_validators_max_index() -> num:
     zero_addr = 0x0000000000000000000000000000000000000000
     activate_validator_num = 0
@@ -108,6 +113,7 @@ def get_validators_max_index() -> num:
     return activate_validator_num + self.empty_slots_stack_top
 
 
+@public
 @payable
 def deposit(validation_code_addr: address, return_addr: address) -> num:
     assert not self.is_valcode_deposited[validation_code_addr]
@@ -136,6 +142,7 @@ def deposit(validation_code_addr: address, return_addr: address) -> num:
     return index
 
 
+@public
 def withdraw(validator_index: num, sig: bytes <= 1000) -> bool:
     msg_hash = sha3("withdraw")
     result = (extract32(raw_call(self.validators[validator_index].validation_code_addr, concat(msg_hash, sig), gas=self.sig_gas_limit, outsize=32), 0) == as_bytes32(1))
@@ -157,6 +164,7 @@ def withdraw(validator_index: num, sig: bytes <= 1000) -> bool:
     return result
 
 
+@public
 @constant
 def sample(shard_id: num) -> address:
     cycle = floor(decimal(block.number / self.shuffling_cycle_length))
@@ -181,6 +189,7 @@ def sample(shard_id: num) -> address:
 
 # Get all possible shard ids that the given valcode_addr
 # may be sampled in the current cycle
+@public
 @constant
 def get_shard_list(valcode_addr: address) -> bool[100]:
     shard_list: bool[100]
@@ -214,6 +223,7 @@ def get_shard_list(valcode_addr: address) -> bool[100]:
 
 
 # Attempts to process a collation header, returns True on success, reverts on failure.
+@public
 def add_header(header: bytes <= 4096) -> bool:
     zero_addr = 0x0000000000000000000000000000000000000000
 
@@ -283,6 +293,7 @@ def add_header(header: bytes <= 4096) -> bool:
     return True
 
 
+@public
 @constant
 def get_period_start_prevhash(expected_period_number: num) -> bytes32:
     block_number = expected_period_number * self.period_length - 1
@@ -306,6 +317,7 @@ def get_period_start_prevhash(expected_period_number: num) -> bytes32:
 
 # Returns the difference between the block number of this hash and the block
 # number of the 10000th ancestor of this hash.
+@public
 @constant
 def get_ancestor_distance(hash: bytes32) -> bytes32:
     # TODO: to be implemented
@@ -314,6 +326,7 @@ def get_ancestor_distance(hash: bytes32) -> bytes32:
 
 # Returns the gas limit that collations can currently have (by default make
 # this function always answer 10 million).
+@public
 @constant
 def get_collation_gas_limit() -> num:
     return 10000000
@@ -323,6 +336,7 @@ def get_collation_gas_limit() -> num:
 # during a future collation. Saves a `receipt ID` for this request,
 # also saving `msg.sender`, `msg.value`, `to`, `shard_id`, `startgas`,
 # `gasprice`, and `data`.
+@public
 @payable
 def tx_to_shard(to: address, shard_id: num, tx_startgas: num, tx_gasprice: num, data: bytes <= 4096) -> num:
     self.receipts[self.num_receipts] = {
@@ -345,6 +359,7 @@ def tx_to_shard(to: address, shard_id: num, tx_startgas: num, tx_gasprice: num, 
     return receipt_id
 
 
+@public
 @payable
 def update_gasprice(receipt_id: num, tx_gasprice: num) -> bool:
     assert self.receipts[receipt_id].sender == msg.sender

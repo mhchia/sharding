@@ -1,5 +1,6 @@
 used_receipts: public(bool[num])
 
+@public
 @payable
 def add_used_receipt(receipt_id: num) -> bool:
     assert msg.sender == self
