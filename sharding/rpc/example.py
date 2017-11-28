@@ -164,7 +164,10 @@ class TesterChainHandler(BaseChainHandler):
         )
 
     def get_block(self, block_number):
-        return self.tester_chain.chain.get_block_by_number(block_number).header
+        block = self.tester_chain.chain.get_block_by_number(block_number)
+        if block is None:
+            raise ValueError("block {} is unavailable".format(block_number))
+        return block.header
 
     def get_block_number(self):
         head_block = self.tester_chain.chain.head
@@ -444,6 +447,7 @@ def get_testing_colhdr(
         privkey=keys[0]):
     period_length = sharding_config['PERIOD_LENGTH']
     expected_period_number = (handler.get_block_number() + 1) // period_length
+    print("!@# add_header: expected_period_number=", expected_period_number)
     period_start_prevhash = handler.get_block(expected_period_number * period_length - 1).hash
     tx_list_root = b"tx_list " * 4
     post_state_root = b"post_sta" * 4
@@ -501,7 +505,6 @@ def main(HandlerClass):
         first_setup_and_deposit(handler, validator_index)
 
     handler.mine(5)
-    print('!@# get_code:', handler.tester_chain.head_state.get_code(b'\x19\xea\xa2\xd2B\xca\xceWT\xf1\xdc\xc3\xcf\x94\xd7\xa6\x92\xdd\x8d\xe2'))
     # handler.deploy_valcode_and_deposit(validator_index); handler.mine(1)
 
     print("!@# sample(): ", handler.sample(0))
@@ -513,12 +516,13 @@ def main(HandlerClass):
     genesis_colhdr_hash = utils.encode_int32(0)
     header1 = get_testing_colhdr(handler, shard_id, genesis_colhdr_hash, 1, privkey=primary_key)
     header1_hash = utils.sha3(header1)
+
+    print("!@# add_header:", handler.add_header(header1, primary_key))
+    handler.mine(5)
     header2 = get_testing_colhdr(handler, shard_id, header1_hash, 2, privkey=primary_key)
     header2_hash = utils.sha3(header2)
-
-    handler.add_header(header1, primary_key)
-    handler.mine(5)
-    handler.add_header(header2, primary_key)
+    print("!@# sample(): ", handler.sample(shard_id))
+    print("!@# add_header:", handler.add_header(header2, primary_key))
     handler.mine(5)
 
     # do_withdraw(handler, validator_index)
@@ -535,4 +539,5 @@ def main(HandlerClass):
 
 
 if __name__ == '__main__':
-    main(TesterChainHandler)
+    # main(TesterChainHandler)
+    main(RPCHandler)
