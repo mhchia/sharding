@@ -94,13 +94,13 @@ class BaseChainHandler:
         '''
         raise NotImplementedError("Must be implemented by subclasses")
 
-    def get_shard_list(self):
-        '''get_shard_list(valcode_addr: address) -> bool[100]
+    def add_header(self, header, privkey):
+        '''add_header(header: bytes <= 4096) -> bool
         '''
         raise NotImplementedError("Must be implemented by subclasses")
 
-    def add_header(self, header, privkey):
-        '''add_header(header: bytes <= 4096) -> bool
+    def get_period_start_prevhash(self, expected_period_number):
+        '''get_period_start_prevhash(expected_period_number: num) -> bytes32
         '''
         raise NotImplementedError("Must be implemented by subclasses")
 
@@ -237,6 +237,11 @@ class TesterChainHandler(BaseChainHandler):
         '''add_header(header: bytes <= 4096) -> bool
         '''
         return self._vmc.add_header(header, sender=privkey, startgas=510000)
+
+    def get_period_start_prevhash(self, expected_period_number):
+        '''get_period_start_prevhash(expected_period_number: num) -> bytes32
+        '''
+        return self._vmc.get_period_start_prevhash(expected_period_number, is_constant=True)
 
     def tx_to_shard(self, to, tx_startgas, tx_gasprice, data):
         '''tx_to_shard(
@@ -377,11 +382,6 @@ class RPCHandler(BaseChainHandler):
         # }).withdraw(validator_index, sig)
         self._vmc.transact({'from': address, 'gas': 510000}).withdraw(validator_index, sig)
 
-    def get_shard_list(self):
-        '''get_shard_list(valcode_addr: address) -> bool[100]
-        '''
-        pass
-
     def add_header(self, header, privkey):
         '''add_header(header: bytes <= 4096) -> bool
         '''
@@ -390,7 +390,12 @@ class RPCHandler(BaseChainHandler):
         # print(self._vmc.call().add_header(header))
         self._vmc.transact({'from': address, 'gas': 510000}).add_header(header)
 
-    def tx_to_shard(self, to, tx_startgas, tx_gasprice, data):
+    def get_period_start_prevhash(self, expected_period_number):
+        '''get_period_start_prevhash(expected_period_number: num) -> bytes32
+        '''
+        return self._vmc.call().get_period_start_prevhash(expected_period_number)
+
+    def tx_to_shard(self, to, shard_id, tx_startgas, tx_gasprice, data):
         '''tx_to_shard(
             to: address, shard_id: num, tx_startgas: num, tx_gasprice: num, data: bytes <= 4096
            ) -> num
@@ -448,7 +453,8 @@ def get_testing_colhdr(
     period_length = sharding_config['PERIOD_LENGTH']
     expected_period_number = (handler.get_block_number() + 1) // period_length
     print("!@# add_header: expected_period_number=", expected_period_number)
-    period_start_prevhash = handler.get_block(expected_period_number * period_length - 1).hash
+    period_start_prevhash = handler.get_period_start_prevhash(expected_period_number)
+    print("!@# period_start_prevhash()={}".format(period_start_prevhash))
     tx_list_root = b"tx_list " * 4
     post_state_root = b"post_sta" * 4
     receipt_root = b"receipt " * 4
