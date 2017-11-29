@@ -22,10 +22,10 @@ for account_number in range(10):
     keys.append(utils.sha3(utils.to_string(account_number)))
     accounts.append(utils.privtoaddr(keys[-1]))
 
+# TODO: fix it, only for faster testing
+sharding_config['SHUFFLING_CYCLE_LENGTH'] = 5
 
 class BaseChainHandler:
-
-    DEPOSIT_VALUE = sharding_config['DEPOSIT_SIZE']
 
     # RPC related
 
@@ -215,7 +215,7 @@ class TesterChainHandler(BaseChainHandler):
             validation_code_addr,
             return_addr,
             sender=privkey,
-            value=self.DEPOSIT_VALUE,
+            value=sharding_config['DEPOSIT_SIZE'],
             startgas=510000,
         )
 
@@ -362,7 +362,7 @@ class RPCHandler(BaseChainHandler):
         gas = sharding_config['CONTRACT_CALL_GAS']['VALIDATOR_MANAGER']['deposit']
         result = self._vmc.transact({
             'from': address,
-            'value': self.DEPOSIT_VALUE,
+            'value': sharding_config['DEPOSIT_SIZE'],
             'gas': 510000,
         }).deposit(validation_code_addr, return_addr)
         print("!@# deposit:", result)
@@ -487,7 +487,7 @@ def get_testing_colhdr(
     ])
 
 
-def main(HandlerClass):
+def test_handler(HandlerClass):
     shard_id = 0
     validator_index = 0
     primary_key = keys[validator_index]
@@ -510,7 +510,7 @@ def main(HandlerClass):
 
         first_setup_and_deposit(handler, validator_index)
 
-    handler.mine(5)
+    handler.mine(sharding_config['SHUFFLING_CYCLE_LENGTH'])
     # handler.deploy_valcode_and_deposit(validator_index); handler.mine(1)
 
     print("!@# sample(): ", handler.sample(0))
@@ -524,12 +524,12 @@ def main(HandlerClass):
     header1_hash = utils.sha3(header1)
 
     print("!@# add_header:", handler.add_header(header1, primary_key))
-    handler.mine(5)
+    handler.mine(sharding_config['SHUFFLING_CYCLE_LENGTH'])
     header2 = get_testing_colhdr(handler, shard_id, header1_hash, 2, privkey=primary_key)
     header2_hash = utils.sha3(header2)
     print("!@# sample(): ", handler.sample(shard_id))
     print("!@# add_header:", handler.add_header(header2, primary_key))
-    handler.mine(5)
+    handler.mine(sharding_config['SHUFFLING_CYCLE_LENGTH'])
 
     # do_withdraw(handler, validator_index)
     # handler.mine(1)
@@ -545,5 +545,5 @@ def main(HandlerClass):
 
 
 if __name__ == '__main__':
-    # main(TesterChainHandler)
-    main(RPCHandler)
+    test_handler(TesterChainHandler)
+    # test_handler(RPCHandler)
