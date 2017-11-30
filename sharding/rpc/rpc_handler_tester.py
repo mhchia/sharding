@@ -1,6 +1,7 @@
 import time
 
 from ethereum import utils
+import eth_utils
 import rlp
 from solc import compile_source
 from viper import compiler
@@ -14,15 +15,14 @@ from sharding.tools import tester as t
 # web3 = Web3(IPCProvider())
 # web3 = Web3(TestRPCProvider())
 
-
 accounts = []
 keys = []
 
 for account_number in range(10):
-    keys.append(utils.sha3(utils.to_string(account_number)))
+    keys.append(eth_utils.crypto.keccak(str(account_number)))
     accounts.append(utils.privtoaddr(keys[-1]))
 
-# TODO: fix it, only for faster testing
+# FIXME: fix it, only for faster testing
 sharding_config['SHUFFLING_CYCLE_LENGTH'] = 5
 
 class BaseChainHandler:
@@ -55,7 +55,7 @@ class BaseChainHandler:
     def deploy_initiating_contracts(self, privkey):
         print("!@# deploy_initiating_contracts")
         if not self.is_vmc_deployed():
-            addr = utils.checksum_encode(utils.privtoaddr(privkey))
+            addr = eth_utils.address.to_checksum_address(utils.privtoaddr(privkey))
             nonce = self.get_nonce(addr)
             txs = validator_manager_utils.mk_initiating_contracts(privkey, nonce)
             for tx in txs[:3]:
@@ -136,7 +136,6 @@ class BaseChainHandler:
         valcode = validator_manager_utils.mk_validation_code(address)
         nonce = self.get_nonce(address)
         valcode_addr = utils.mk_contract_address(address, nonce)
-        print("!@# valcode_addr=", valcode_addr)
         self.unlock_account(address)
         self.deploy_contract(valcode, privkey)
         self.deposit(valcode_addr, address, privkey)
@@ -293,10 +292,10 @@ class RPCHandler(BaseChainHandler):
         self.setup_vmc_instance()
 
     def init_vmc_attributes(self):
-        self._vmc_addr = utils.checksum_encode(validator_manager_utils.get_valmgr_addr())
+        self._vmc_addr = eth_utils.address.to_checksum_address(validator_manager_utils.get_valmgr_addr())
         print("!@# vmc_addr={}".format(self._vmc_addr))
-        self._vmc_sender_addr = utils.checksum_encode(
-            validator_manager_utils.get_valmgr_sender_addr(),
+        self._vmc_sender_addr = eth_utils.address.to_checksum_address(
+            validator_manager_utils.get_valmgr_sender_addr()
         )
         print("!@# vmc_sender_addr={}".format(self._vmc_sender_addr))
         self._vmc_bytecode = validator_manager_utils.get_valmgr_bytecode()
@@ -321,7 +320,7 @@ class RPCHandler(BaseChainHandler):
         return self._w3.eth.blockNumber
 
     def get_nonce(self, address):
-        address = utils.checksum_encode(address)
+        address = eth_utils.address.to_checksum_address(address)
         return self._w3.eth.getTransactionCount(address)
 
     def import_privkey(self, privkey):
@@ -340,7 +339,9 @@ class RPCHandler(BaseChainHandler):
     def deploy_contract(self, bytecode, privkey):
         address = utils.privtoaddr(privkey)
         self.unlock_account(address)
-        self._w3.eth.sendTransaction({"from": utils.checksum_encode(address), "data": bytecode})
+        self._w3.eth.sendTransaction(
+            {"from": eth_utils.address.to_checksum_address(address), "data": bytecode}
+        )
 
     def direct_tx(self, tx):
         raw_tx = rlp.encode(tx)
@@ -357,7 +358,7 @@ class RPCHandler(BaseChainHandler):
         self._w3.miner.stop()
 
     def unlock_account(self, account):
-        account = utils.checksum_encode(account)
+        account = eth_utils.address.to_checksum_address(account)
         passphrase = self.PASSPHRASE
         self._w3.personal.unlockAccount(account, passphrase)
 
@@ -371,9 +372,9 @@ class RPCHandler(BaseChainHandler):
     def deposit(self, validation_code_addr, return_addr, privkey):
         '''deposit(validation_code_addr: address, return_addr: address) -> num
         '''
-        address = utils.checksum_encode(utils.privtoaddr(privkey))
-        validation_code_addr = utils.checksum_encode(validation_code_addr)
-        return_addr = utils.checksum_encode(return_addr)
+        address = eth_utils.address.to_checksum_address(utils.privtoaddr(privkey))
+        validation_code_addr = eth_utils.address.to_checksum_address(validation_code_addr)
+        return_addr = eth_utils.address.to_checksum_address(return_addr)
         self.unlock_account(address)
         gas = sharding_config['CONTRACT_CALL_GAS']['VALIDATOR_MANAGER']['deposit']
         result = self._vmc.transact({
@@ -390,14 +391,14 @@ class RPCHandler(BaseChainHandler):
             gas=sharding_config['CONTRACT_CALL_GAS']['VALIDATOR_MANAGER']['withdraw']):
         '''withdraw(validator_index: num, sig: bytes <= 1000) -> bool
         '''
-        address = utils.checksum_encode(utils.privtoaddr(privkey))
+        address = eth_utils.address.to_checksum_address(utils.privtoaddr(privkey))
         self.unlock_account(address)
         self._vmc.transact({'from': address, 'gas': self.TX_GAS}).withdraw(validator_index, sig)
 
     def add_header(self, header, privkey):
         '''add_header(header: bytes <= 4096) -> bool
         '''
-        address = utils.checksum_encode(utils.privtoaddr(privkey))
+        address = eth_utils.address.to_checksum_address(utils.privtoaddr(privkey))
         self.unlock_account(address)
         self._vmc.transact({'from': address, 'gas': self.TX_GAS}).add_header(header)
 
@@ -411,8 +412,8 @@ class RPCHandler(BaseChainHandler):
             to: address, shard_id: num, tx_startgas: num, tx_gasprice: num, data: bytes <= 4096
            ) -> num
         '''
-        address = utils.checksum_encode(utils.privtoaddr(privkey))
-        to = utils.checksum_encode(to)
+        address = eth_utils.address.to_checksum_address(utils.privtoaddr(privkey))
+        to = eth_utils.address.to_checksum_address(to)
         self._vmc.transact({'from': address, 'gas': self.TX_GAS, 'value': value}).tx_to_shard(
             to,
             shard_id,
@@ -438,7 +439,9 @@ class RPCHandler(BaseChainHandler):
 
 def print_current_contract_address(sender_address, nonce):
     list_addresses = [
-        utils.checksum_encode(utils.mk_contract_address(accounts[0], i)) for i in range(nonce + 1)
+        eth_utils.address.to_checksum_address(
+            utils.mk_contract_address(accounts[0], i)
+        ) for i in range(nonce + 1)
     ]
     print(list_addresses)
 
@@ -453,7 +456,7 @@ def import_tester_keys(handler):
 
 def first_setup_and_deposit(handler, validator_index):
     handler.deploy_valcode_and_deposit(validator_index)
-    # TODO: error occurs when we don't mine so many blocks
+    # FIXME: error occurs when we don't mine so many blocks
     handler.mine(sharding_config['SHUFFLING_CYCLE_LENGTH'])
 
 
@@ -480,7 +483,7 @@ def get_testing_colhdr(
     tx_list_root = b"tx_list " * 4
     post_state_root = b"post_sta" * 4
     receipt_root = b"receipt " * 4
-    sighash = utils.sha3(
+    sighash = eth_utils.crypto.keccak(
         rlp.encode([
             shard_id,
             expected_period_number,
@@ -508,23 +511,24 @@ def get_testing_colhdr(
         sig,
     ])
 
+py_evm_instance = None
 
 def test_handler(HandlerClass):
     shard_id = 0
     validator_index = 0
     primary_key = keys[validator_index]
     primary_addr = accounts[validator_index]
-    zero_addr = utils.checksum_encode(utils.int_to_addr(0))
+    zero_addr = eth_utils.address.to_checksum_address(utils.int_to_addr(0))
 
     handler = HandlerClass()
-    print(utils.checksum_encode(validator_manager_utils.viper_rlp_decoder_addr))
-    print(utils.checksum_encode(validator_manager_utils.sighasher_addr))
+    print(eth_utils.address.to_checksum_address(validator_manager_utils.viper_rlp_decoder_addr))
+    print(eth_utils.address.to_checksum_address(validator_manager_utils.sighasher_addr))
 
     # print("!@# handler.get_block_number()={}".format(handler.get_block_number()))
     if not handler.is_vmc_deployed():
         import_tester_keys(handler)
 
-        addr = utils.checksum_encode(primary_addr)
+        addr = eth_utils.address.to_checksum_address(primary_addr)
         print("!@# a0.addr={}".format(addr))
         handler.unlock_account(addr)
         handler.deploy_initiating_contracts(primary_key)
@@ -539,17 +543,17 @@ def test_handler(HandlerClass):
     assert handler.get_num_validators() == 1
     print("!@# get_num_validators(): ", handler.get_num_validators())
 
-    addr = utils.checksum_encode(primary_addr)
+    addr = eth_utils.address.to_checksum_address(primary_addr)
     handler.unlock_account(addr)
 
     genesis_colhdr_hash = utils.encode_int32(0)
     header1 = get_testing_colhdr(handler, shard_id, genesis_colhdr_hash, 1, privkey=primary_key)
-    header1_hash = utils.sha3(header1)
+    header1_hash = eth_utils.crypto.keccak(header1)
     handler.add_header(header1, primary_key)
     handler.mine(sharding_config['SHUFFLING_CYCLE_LENGTH'])
 
     header2 = get_testing_colhdr(handler, shard_id, header1_hash, 2, privkey=primary_key)
-    header2_hash = utils.sha3(header2)
+    header2_hash = eth_utils.crypto.keccak(header2)
     handler.add_header(header2, primary_key)
     handler.mine(sharding_config['SHUFFLING_CYCLE_LENGTH'])
 
