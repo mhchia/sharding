@@ -121,6 +121,21 @@ class BaseChainHandler:
 
     PASSPHRASE = '123'
 
+    def init_vmc_attributes(self):
+        self._vmc_addr = eth_utils.address.to_checksum_address(
+            validator_manager_utils.get_valmgr_addr()
+        )
+        print("!@# vmc_addr={}".format(self._vmc_addr))
+        self._vmc_sender_addr = eth_utils.address.to_checksum_address(
+            validator_manager_utils.get_valmgr_sender_addr()
+        )
+        print("!@# vmc_sender_addr={}".format(self._vmc_sender_addr))
+        self._vmc_bytecode = validator_manager_utils.get_valmgr_bytecode()
+        self._vmc_code = validator_manager_utils.get_valmgr_code()
+        self._vmc_abi = compiler.mk_full_signature(self._vmc_code)
+        # print("!@# vmc_abi={}".format(self._vmc_abi))
+        self._vmc_ct = validator_manager_utils.get_valmgr_ct()
+
     # RPC related
 
     def get_block_by_number(self, block_number):
@@ -239,32 +254,15 @@ class BaseChainHandler:
         )
         self.unlock_account(address)
         self.deploy_contract(valcode, address)
+        self.mine(1)
         self.deposit(valcode_addr, address, address)
 
 
 class TesterChainHandler(BaseChainHandler):
 
     def __init__(self):
-        self.et = EthereumTester(backend=PyEVMBackend(), )
+        self.et = EthereumTester(backend=PyEVMBackend(), auto_mine_transactions=False)
         self.init_vmc_attributes()
-        self.setup_vmc_instance()
-
-    def init_vmc_attributes(self):
-        self._vmc_addr = eth_utils.address.to_checksum_address(
-            validator_manager_utils.get_valmgr_addr()
-        )
-        print("!@# vmc_addr={}".format(self._vmc_addr))
-        self._vmc_sender_addr = eth_utils.address.to_checksum_address(
-            validator_manager_utils.get_valmgr_sender_addr()
-        )
-        self._vmc_bytecode = validator_manager_utils.get_valmgr_bytecode()
-        self._vmc_abi = validator_manager_utils.get_valmgr_abi()
-        self._vmc_code = validator_manager_utils.get_valmgr_code()
-        # print("!@# vmc_abi={}".format(self._vmc_abi))
-        self._vmc_ct = validator_manager_utils.get_valmgr_ct()
-
-    def setup_vmc_instance(self):
-        pass
 
     def get_block_by_number(self, block_number):
         block = self.et.get_block_by_number(block_number)
@@ -332,7 +330,7 @@ class TesterChainHandler(BaseChainHandler):
         )
 
     def direct_tx(self, tx):
-        print("!@# direct_tx: {}".format(tx.hash))
+        # FIXME: hacky
         from ethereum.transactions import Transaction
         if isinstance(tx, Transaction):
             from evm.vm.forks.spurious_dragon.transactions import SpuriousDragonTransaction
@@ -413,12 +411,7 @@ class TesterChainHandler(BaseChainHandler):
             value=sharding_config['DEPOSIT_SIZE'],
         )
 
-    def withdraw(self,
-            validator_index,
-            sig,
-            sender_addr,
-            gas=TX_GAS,
-            gas_price=GASPRICE):
+    def withdraw(self, validator_index, sig, sender_addr, gas=TX_GAS, gas_price=GASPRICE):
         '''withdraw(validator_index: num, sig: bytes <= 1000) -> bool
         '''
         return self.send_vmc_tx(
@@ -498,19 +491,6 @@ class RPCHandler(BaseChainHandler):
         self.init_vmc_attributes()
         self.setup_vmc_instance()
 
-    def init_vmc_attributes(self):
-        self._vmc_addr = eth_utils.address.to_checksum_address(validator_manager_utils.get_valmgr_addr())
-        print("!@# vmc_addr={}".format(self._vmc_addr))
-        self._vmc_sender_addr = eth_utils.address.to_checksum_address(
-            validator_manager_utils.get_valmgr_sender_addr()
-        )
-        print("!@# vmc_sender_addr={}".format(self._vmc_sender_addr))
-        self._vmc_bytecode = validator_manager_utils.get_valmgr_bytecode()
-        self._vmc_code = validator_manager_utils.get_valmgr_code()
-        self._vmc_abi = compiler.mk_full_signature(self._vmc_code)
-        # print("!@# vmc_abi={}".format(self._vmc_abi))
-        self._vmc_ct = validator_manager_utils.get_valmgr_ct()
-
     def setup_vmc_instance(self):
         self._vmc = self._w3.eth.contract(
             self._vmc_addr,
@@ -578,42 +558,55 @@ class RPCHandler(BaseChainHandler):
         '''
         return self._vmc.call().sample(shard_id)
 
-    def deposit(self, validation_code_addr, return_addr, sender_addr, gas=TX_GAS):
+    def deposit(
+            self,
+            validation_code_addr,
+            return_addr,
+            sender_addr,
+            gas=TX_GAS,
+            gas_price=GASPRICE):
         '''deposit(validation_code_addr: address, return_addr: address) -> num
         '''
         validation_code_addr = eth_utils.address.to_checksum_address(validation_code_addr)
         return_addr = eth_utils.address.to_checksum_address(return_addr)
         self.unlock_account(sender_addr)
         gas = sharding_config['CONTRACT_CALL_GAS']['VALIDATOR_MANAGER']['deposit']
-        result = self._vmc.transact({
+        tx_hash = self._vmc.transact({
             'from': sender_addr,
             'value': sharding_config['DEPOSIT_SIZE'],
             'gas': gas,
+            'gas_price': gas_price,
         }).deposit(validation_code_addr, return_addr)
-        print("!@# deposit:", result)
+        return tx_hash
 
-    def withdraw(self,
-            validator_index,
-            sig,
-            sender_addr,
-            gas=TX_GAS):
+    def withdraw(self, validator_index, sig, sender_addr, gas=TX_GAS, gas_price=GASPRICE):
         '''withdraw(validator_index: num, sig: bytes <= 1000) -> bool
         '''
         self.unlock_account(sender_addr)
-        self._vmc.transact({'from': sender_addr, 'gas': gas}).withdraw(validator_index, sig)
+        tx_hash = self._vmc.transact({'from': sender_addr, 'gas': gas}).withdraw(
+            validator_index,
+            sig,
+        )
+        return tx_hash
 
-    def add_header(self, header, sender_addr, gas=TX_GAS):
+    def add_header(self, header, sender_addr, gas=TX_GAS, gas_price=GASPRICE):
         '''add_header(header: bytes <= 4096) -> bool
         '''
         self.unlock_account(sender_addr)
-        self._vmc.transact({'from': sender_addr, 'gas': gas}).add_header(header)
+        tx_hash = self._vmc.transact({
+            'from': sender_addr,
+            'gas': gas,
+            'gas_price': gas_price,
+        }).add_header(header)
+        return tx_hash
 
     def get_period_start_prevhash(self, expected_period_number):
         '''get_period_start_prevhash(expected_period_number: num) -> bytes32
         '''
         return self._vmc.call().get_period_start_prevhash(expected_period_number)
 
-    def tx_to_shard(self,
+    def tx_to_shard(
+            self,
             to,
             shard_id,
             tx_startgas,
@@ -621,19 +614,26 @@ class RPCHandler(BaseChainHandler):
             data,
             value,
             sender_addr,
-            gas=TX_GAS):
+            gas=TX_GAS,
+            gas_price=GASPRICE):
         '''tx_to_shard(
             to: address, shard_id: num, tx_startgas: num, tx_gasprice: num, data: bytes <= 4096
            ) -> num
         '''
         to = eth_utils.address.to_checksum_address(to)
-        self._vmc.transact({'from': sender_addr, 'gas': gas, 'value': value}).tx_to_shard(
+        tx_hash = self._vmc.transact({
+            'from': sender_addr,
+            'gas': gas,
+            'gas_price': gas_price,
+            'value': value,
+        }).tx_to_shard(
             to,
             shard_id,
             tx_startgas,
             tx_gasprice,
             data,
         )
+        return tx_hash
 
     def get_collation_gas_limit(self):
         '''get_collation_gas_limit() -> num
@@ -741,12 +741,9 @@ def test_handler(HandlerClass):
         print('not handler.is_vmc_deployed()')
         import_tester_keys(handler)
 
-        addr = primary_addr
-        print("!@# a0.addr={}".format(addr))
-        handler.unlock_account(addr)
+        handler.unlock_account(primary_addr)
         handler.deploy_initiating_contracts(keys[validator_index])
         handler.mine(1)
-
         first_setup_and_deposit(handler, validator_index)
 
     assert handler.is_vmc_deployed()
