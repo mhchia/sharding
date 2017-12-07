@@ -4,10 +4,7 @@ import eth_utils
 import rlp
 from viper import compiler
 
-from sharding import (
-    contract_utils,
-    validator_manager_utils,
-)
+from sharding import contract_utils
 
 from chain_handler import (
     RPCChainHandler,
@@ -17,7 +14,8 @@ from config import (
     PERIOD_LENGTH,
     SHUFFLING_CYCLE_LENGTH,
 )
-from vmc_utils import VMCHandler
+from vmc_handler import VMCHandler
+import vmc_utils
 
 
 keys = get_default_account_keys()
@@ -35,7 +33,8 @@ def print_current_contract_address(sender_address, nonce):
 def do_withdraw(vmc_handler, validator_index):
     assert validator_index < len(keys)
     privkey = keys[validator_index]
-    signature = contract_utils.sign(validator_manager_utils.WITHDRAW_HASH, privkey)
+    # FIXME: remove the need of contract_utils
+    signature = contract_utils.sign(vmc_utils.WITHDRAW_HASH, privkey.to_bytes())
     vmc_handler.withdraw(validator_index, signature, privkey)
     vmc_handler.chain_handler.mine(1)
 
@@ -67,6 +66,7 @@ def get_testing_colhdr(
             number,
         ])
     )
+    # FIXME: remove the need of contract_utils
     sig = contract_utils.sign(sighash, privkey)
     return rlp.encode([
         shard_id,
@@ -89,8 +89,8 @@ def test_handler(ChainHandlerClass):
     zero_addr = eth_utils.address.to_checksum_address(b'\x00' * 20)
 
     vmc_handler = VMCHandler(ChainHandlerClass(), primary_addr=primary_addr)
-    print(eth_utils.address.to_checksum_address(validator_manager_utils.viper_rlp_decoder_addr))
-    print(eth_utils.address.to_checksum_address(validator_manager_utils.sighasher_addr))
+    print(eth_utils.address.to_checksum_address(vmc_utils.viper_rlp_decoder_addr))
+    print(eth_utils.address.to_checksum_address(vmc_utils.sighasher_addr))
 
     # print("!@# handler.get_block_number()={}".format(handler.get_block_number()))
     if not vmc_handler.is_vmc_deployed():

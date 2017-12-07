@@ -108,25 +108,7 @@ class TesterChainHandler(BaseChainHandler):
         return self.send_tx(address, value=0, data=bytecode)
 
     def direct_tx(self, tx):
-        # FIXME: hacky
-        from ethereum.transactions import Transaction
-        if isinstance(tx, Transaction):
-            from evm.vm.forks.spurious_dragon.transactions import SpuriousDragonTransaction
-            evm_tx = SpuriousDragonTransaction(
-                tx.nonce,
-                tx.gasprice,
-                tx.startgas,
-                tx.to,
-                tx.value,
-                tx.data,
-                tx.v,
-                tx.r,
-                tx.s,
-            )
-        else:
-            evm_tx = tx
-        # FIXME: hacky
-        return self.et.backend.chain.apply_transaction(evm_tx)
+        return self.et.backend.chain.apply_transaction(tx)
 
 
 class RPCChainHandler(BaseChainHandler):
