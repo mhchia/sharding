@@ -352,9 +352,6 @@ class TesterChainHandler(BaseChainHandler):
         passphrase = self.PASSPHRASE
         self.et.add_account(privkey, passphrase)
 
-    def is_vmc_deployed(self):
-        return self.get_nonce(self._vmc_sender_addr) != 0
-
     def mine(self, number):
         self.et.mine_blocks(num_blocks=number)
 
@@ -373,14 +370,7 @@ class TesterChainHandler(BaseChainHandler):
 
     # utils
 
-    def send_tx(
-            self,
-            sender_addr,
-            to=None,
-            value=0,
-            data=b'',
-            gas=TX_GAS,
-            gasprice=GASPRICE):
+    def send_tx(self, sender_addr, to=None, value=0, data=b'', gas=TX_GAS, gasprice=GASPRICE):
         tx_obj = {
             'from': sender_addr,
             'value': value,
@@ -390,15 +380,12 @@ class TesterChainHandler(BaseChainHandler):
         }
         if to is not None:
             tx_obj['to'] = to
-        tx_hash = self.et.send_transaction(tx_obj)
+        self.unlock_account(sender_addr)
+        tx_hash = self.send_transaction(tx_obj)
         return tx_hash
 
     def deploy_contract(self, bytecode, address):
-        return self.send_tx(
-            address,
-            value=0,
-            data=bytecode,
-        )
+        return self.send_tx(address, value=0, data=bytecode)
 
     def direct_tx(self, tx):
         # FIXME: hacky
@@ -421,6 +408,10 @@ class TesterChainHandler(BaseChainHandler):
         # FIXME: hacky
         return self.et.backend.chain.apply_transaction(evm_tx)
 
+    # vmc
+    def is_vmc_deployed(self):
+        return self.get_nonce(self._vmc_sender_addr) != 0
+
 
 class RPCHandler(BaseChainHandler):
 
@@ -428,14 +419,6 @@ class RPCHandler(BaseChainHandler):
         # self.init
         self._w3 = Web3(HTTPProvider(rpc_server_url))
         self.init_vmc_attributes()
-        self.setup_vmc_instance()
-
-    def setup_vmc_instance(self):
-        self._vmc = self._w3.eth.contract(
-            self._vmc_addr,
-            abi=self._vmc_abi,
-            bytecode=self._vmc_bytecode,
-        )
 
     # RPC related
 
@@ -485,34 +468,36 @@ class RPCHandler(BaseChainHandler):
 
     def is_vmc_deployed(self):
         return (
-            self.get_code(self._vmc_addr) != b'' and \
+            # self.get_code(self._vmc_addr) != b'' and \
             self.get_nonce(self._vmc_sender_addr) != 0
         )
 
     def deploy_contract(self, bytecode, address):
         self.unlock_account(address)
-        self._w3.eth.sendTransaction(
+        self.send_transaction(
             {"from": address, "data": bytecode}
         )
 
     def direct_tx(self, tx):
         raw_tx = rlp.encode(tx)
         raw_tx_hex = self._w3.toHex(raw_tx)
-        result = self._w3.eth.sendRawTransaction(raw_tx_hex)
+        tx_hash = self._w3.eth.sendRawTransaction(raw_tx_hex)
+        return tx_hash
+
 
 class VMCHandler:
     def __init__(self, chain_handler=TesterChainHandler()):
         self.chain_handler = chain_handler
 
 
+
 def print_current_contract_address(sender_address, nonce):
     list_addresses = [
         eth_utils.address.to_checksum_address(
-            generate_contract_address(accounts[0], i)
+            generate_contract_address(keys[0].public_key.to_checksum_address(), i)
         ) for i in range(nonce + 1)
     ]
     print(list_addresses)
-
 
 def import_tester_keys(handler):
     for privkey in keys:
@@ -521,12 +506,10 @@ def import_tester_keys(handler):
         except (ValueError, ValidationError):
             pass
 
-
 def first_setup_and_deposit(handler, validator_index):
     handler.deploy_valcode_and_deposit(validator_index)
-    # FIXME: error occurs when we don't mine so many blocks
+    # TODO: error occurs when we don't mine so many blocks
     handler.mine(sharding_config['SHUFFLING_CYCLE_LENGTH'])
-
 
 def do_withdraw(handler, validator_index):
     assert validator_index < len(keys)
@@ -534,7 +517,6 @@ def do_withdraw(handler, validator_index):
     signature = contract_utils.sign(validator_manager_utils.WITHDRAW_HASH, privkey)
     handler.withdraw(validator_index, signature, privkey)
     handler.mine(1)
-
 
 def get_testing_colhdr(
         handler,
@@ -578,7 +560,6 @@ def get_testing_colhdr(
         sig,
     ])
 
-py_evm_instance = None
 
 def test_handler(HandlerClass):
     shard_id = 0
@@ -606,7 +587,6 @@ def test_handler(HandlerClass):
     handler.mine(sharding_config['SHUFFLING_CYCLE_LENGTH'])
     # handler.deploy_valcode_and_deposit(validator_index); handler.mine(1)
 
-    # print(handler.sample(0))
     assert handler.sample(0) != zero_addr
     assert handler.get_num_validators() == 1
     print("!@# get_num_validators(): ", handler.get_num_validators())
@@ -624,11 +604,6 @@ def test_handler(HandlerClass):
     header2_hash = sha3(header2)
     handler.add_header(header2, primary_addr)
     handler.mine(sharding_config['SHUFFLING_CYCLE_LENGTH'])
-
-    # do_withdraw(handler, validator_index)
-    # handler.mine(1)
-    # print("!@# sample(): ", handler.sample(shard_id))
-    # print("!@# get_num_validators(): ", handler.get_num_validators())
 
     assert handler.get_collation_header_score(shard_id, header1_hash) == 1
     assert handler.get_collation_header_score(shard_id, header2_hash) == 2
