@@ -1,9 +1,9 @@
 from sharding.config import sharding_config
 
-# FIXME: should be 25, fix it, only for faster testing
-SHUFFLING_CYCLE_LENGTH = sharding_config['SHUFFLING_CYCLE_LENGTH'] = 5
-DEPOSIT_SIZE = sharding_config['DEPOSIT_SIZE']
-PERIOD_LENGTH = sharding_config['PERIOD_LENGTH']
+# FIXME: should be 25 or 2500, fix it, only for faster testing
+SHUFFLING_CYCLE_LENGTH = 5
+DEPOSIT_SIZE = 10 ** 20
+PERIOD_LENGTH = 5
 
 TX_GAS = 510000
 GASPRICE = 1
