@@ -68,7 +68,7 @@ def __init__():
     self.empty_slots_stack_top = 0
     # 10 ** 20 wei = 100 ETH
     self.deposit_size = 100000000000000000000
-    self.shuffling_cycle_length = 5
+    self.shuffling_cycle_length = 5 # FIXME: just modified temporarily for test
     self.sig_gas_limit = 400000
     self.period_length = 5
     self.num_validators_per_cycle = 100

@@ -144,7 +144,10 @@ class BaseChainHandler:
             for tx in txs[3:]:
                 self.direct_tx(tx)
             self.mine(1)
-            print('!@# deploy: vmc: ', self.et.get_transaction_receipt(eth_utils.encode_hex(txs[-1].hash)))
+            print(
+                '!@# deploy: vmc: ',
+                self.get_transaction_receipt(eth_utils.encode_hex(txs[-1].hash)),
+            )
 
     def setup_vmc_instance(self):
         raise NotImplementedError("Must be implemented by subclasses")
@@ -155,6 +158,9 @@ class BaseChainHandler:
     def unlock_account(self, account):
         raise NotImplementedError("Must be implemented by subclasses")
 
+    def get_transaction_receipt(self, tx_hash):
+        raise NotImplementedError("Must be implemented by subclasses")
+
     # vmc related #############################
 
     def sample(self, shard_id):
@@ -162,7 +168,7 @@ class BaseChainHandler:
         '''
         raise NotImplementedError("Must be implemented by subclasses")
 
-    def deposit(self, validation_code_addr, return_addr, privkey):
+    def deposit(self, validation_code_addr, return_addr, sender_addr):
         '''deposit(validation_code_addr: address, return_addr: address) -> num
         '''
         raise NotImplementedError("Must be implemented by subclasses")
@@ -170,13 +176,13 @@ class BaseChainHandler:
     def withdraw(self,
             validator_index,
             sig,
-            privkey,
+            sender_addr,
             gas=sharding_config['CONTRACT_CALL_GAS']['VALIDATOR_MANAGER']['withdraw']):
         '''withdraw(validator_index: num, sig: bytes <= 1000) -> bool
         '''
         raise NotImplementedError("Must be implemented by subclasses")
 
-    def add_header(self, header, privkey):
+    def add_header(self, header, sender_addr):
         '''add_header(header: bytes <= 4096) -> bool
         '''
         raise NotImplementedError("Must be implemented by subclasses")
@@ -186,7 +192,7 @@ class BaseChainHandler:
         '''
         raise NotImplementedError("Must be implemented by subclasses")
 
-    def tx_to_shard(self, to, shard_id, tx_startgas, tx_gasprice, data, value, privkey):
+    def tx_to_shard(self, to, shard_id, tx_startgas, tx_gasprice, data, value, sender_addr):
         '''tx_to_shard(
             to: address, shard_id: num, tx_startgas: num, tx_gasprice: num, data: bytes <= 4096
            ) -> num
@@ -222,13 +228,12 @@ class BaseChainHandler:
         )
         self.unlock_account(address)
         self.deploy_contract(valcode, address)
-        self.deposit(valcode_addr, address, privkey.to_bytes())
+        self.deposit(valcode_addr, address, address)
 
 
 class TesterChainHandler(BaseChainHandler):
 
     def __init__(self):
-        # self.tester_chain = t.Chain(env='sharding', deploy_sharding_contracts=False)
         self.et = EthereumTester(backend=PyEVMBackend())
         self.init_vmc_attributes()
         self.setup_vmc_instance()
@@ -269,6 +274,19 @@ class TesterChainHandler(BaseChainHandler):
 
     def is_vmc_deployed(self):
         return self.get_nonce(self._vmc_sender_addr) != 0
+
+    def mine(self, number):
+        self.et.mine_blocks(num_blocks=number)
+
+    def unlock_account(self, account):
+        passphrase = self.PASSPHRASE
+        # self.et.unlock_account(account, passphrase)
+        pass
+
+    def get_transaction_receipt(self, tx_hash):
+        return self.et.get_transaction_receipt(tx_hash)
+
+    # utils
 
     def send_tx(
             self,
@@ -322,14 +340,6 @@ class TesterChainHandler(BaseChainHandler):
         # evm_tx.s = tx.s
         return self.et.backend.chain.apply_transaction(evm_tx)
 
-    def mine(self, number):
-        self.et.mine_blocks(num_blocks=number)
-
-    def unlock_account(self, account):
-        passphrase = self.PASSPHRASE
-        # self.et.unlock_account(account, passphrase)
-        pass
-
     # vmc related #############################
 
     def sample(self, shard_id):
@@ -346,13 +356,14 @@ class TesterChainHandler(BaseChainHandler):
         # print("!@# sample(): get_transaction_receipt={}".format(tx_receipt))
         # return tx_hash
 
-    def deposit(self, validation_code_addr, return_addr, privkey, startgas=TX_GAS):
+    def deposit(self, validation_code_addr, return_addr, sender_addr, startgas=TX_GAS):
         '''deposit(validation_code_addr: address, return_addr: address) -> num
         '''
         tx_obj = mk_vmc_call_tx_obj(
             'deposit',
             [validation_code_addr, return_addr],
             value=sharding_config['DEPOSIT_SIZE'],
+            sender_addr=sender_addr,
         )
         tx_hash = self.et.send_transaction(tx_obj)
         print(tx_hash)
@@ -368,21 +379,21 @@ class TesterChainHandler(BaseChainHandler):
     def withdraw(self,
             validator_index,
             sig,
-            privkey,
+            sender_addr,
             startgas=TX_GAS):
         '''withdraw(validator_index: num, sig: bytes <= 1000) -> bool
         '''
-        result = self._vmc.withdraw(validator_index, sig, sender=privkey, startgas=startgas)
+        result = self._vmc.withdraw(validator_index, sig, sender=sender_addr, startgas=startgas)
 
     def get_shard_list(self):
         '''get_shard_list(valcode_addr: address) -> bool[100]
         '''
         raise NotImplementedError("Must be implemented by subclasses")
 
-    def add_header(self, header, privkey, startgas=TX_GAS):
+    def add_header(self, header, sender_addr, startgas=TX_GAS):
         '''add_header(header: bytes <= 4096) -> bool
         '''
-        self._vmc.add_header(header, sender=privkey, startgas=startgas)
+        self._vmc.add_header(header, sender=sender_addr, startgas=startgas)
 
     def get_period_start_prevhash(self, expected_period_number):
         '''get_period_start_prevhash(expected_period_number: num) -> bytes32
@@ -397,7 +408,7 @@ class TesterChainHandler(BaseChainHandler):
             tx_gasprice,
             data,
             value,
-            privkey,
+            sender_addr,
             startgas=TX_GAS):
         '''tx_to_shard(
             to: address, shard_id: num, tx_startgas: num, tx_gasprice: num, data: bytes <= 4096
@@ -409,7 +420,7 @@ class TesterChainHandler(BaseChainHandler):
             tx_startgas,
             tx_gasprice,
             data,
-            sender=privkey,
+            sender=sender_addr,
             startgas=startgas,
             value=value
         )
@@ -528,23 +539,25 @@ class RPCHandler(BaseChainHandler):
         passphrase = self.PASSPHRASE
         self._w3.personal.unlockAccount(account, passphrase)
 
+    def get_transaction_receipt(self, tx_hash):
+        return self._w3.eth.getTransactionReceipt(tx_hash)
+
     # vmc related #############################
 
     def sample(self, shard_id):
         '''sample(shard_id: num) -> address
         '''
-        return self._vmc.call().sample(shard_id)g
+        return self._vmc.call().sample(shard_id)
 
-    def deposit(self, validation_code_addr, return_addr, privkey, startgas=TX_GAS):
+    def deposit(self, validation_code_addr, return_addr, sender_addr, startgas=TX_GAS):
         '''deposit(validation_code_addr: address, return_addr: address) -> num
         '''
-        address = eth_utils.address.to_checksum_address(utils.privtoaddr(privkey))
         validation_code_addr = eth_utils.address.to_checksum_address(validation_code_addr)
         return_addr = eth_utils.address.to_checksum_address(return_addr)
-        self.unlock_account(address)
+        self.unlock_account(sender_addr)
         gas = sharding_config['CONTRACT_CALL_GAS']['VALIDATOR_MANAGER']['deposit']
         result = self._vmc.transact({
-            'from': address,
+            'from': sender_addr,
             'value': sharding_config['DEPOSIT_SIZE'],
             'gas': startgas,
         }).deposit(validation_code_addr, return_addr)
@@ -553,20 +566,18 @@ class RPCHandler(BaseChainHandler):
     def withdraw(self,
             validator_index,
             sig,
-            privkey,
+            sender_addr,
             startgas=TX_GAS):
         '''withdraw(validator_index: num, sig: bytes <= 1000) -> bool
         '''
-        address = eth_utils.address.to_checksum_address(utils.privtoaddr(privkey))
-        self.unlock_account(address)
-        self._vmc.transact({'from': address, 'gas': startgas}).withdraw(validator_index, sig)
+        self.unlock_account(sender_addr)
+        self._vmc.transact({'from': sender_addr, 'gas': startgas}).withdraw(validator_index, sig)
 
-    def add_header(self, header, privkey, startgas=TX_GAS):
+    def add_header(self, header, sender_addr, startgas=TX_GAS):
         '''add_header(header: bytes <= 4096) -> bool
         '''
-        address = eth_utils.address.to_checksum_address(utils.privtoaddr(privkey))
-        self.unlock_account(address)
-        self._vmc.transact({'from': address, 'gas': startgas}).add_header(header)
+        self.unlock_account(sender_addr)
+        self._vmc.transact({'from': sender_addr, 'gas': startgas}).add_header(header)
 
     def get_period_start_prevhash(self, expected_period_number):
         '''get_period_start_prevhash(expected_period_number: num) -> bytes32
@@ -580,15 +591,14 @@ class RPCHandler(BaseChainHandler):
             tx_gasprice,
             data,
             value,
-            privkey,
+            sender_addr,
             startgas=TX_GAS):
         '''tx_to_shard(
             to: address, shard_id: num, tx_startgas: num, tx_gasprice: num, data: bytes <= 4096
            ) -> num
         '''
-        address = eth_utils.address.to_checksum_address(utils.privtoaddr(privkey))
         to = eth_utils.address.to_checksum_address(to)
-        self._vmc.transact({'from': address, 'gas': startgas, 'value': value}).tx_to_shard(
+        self._vmc.transact({'from': sender_addr, 'gas': startgas, 'value': value}).tx_to_shard(
             to,
             shard_id,
             tx_startgas,
@@ -671,7 +681,6 @@ def get_testing_colhdr(
         ])
     )
     sig = contract_utils.sign(sighash, privkey)
-    # return rlp.encode([shard_id, sig])
     return rlp.encode([
         shard_id,
         expected_period_number,
@@ -726,14 +735,14 @@ def test_handler(HandlerClass):
     handler.unlock_account(addr)
 
     genesis_colhdr_hash = b'\x00' * 32
-    header1 = get_testing_colhdr(handler, shard_id, genesis_colhdr_hash, 1, privkey=primary_key)
+    header1 = get_testing_colhdr(handler, shard_id, genesis_colhdr_hash, 1)
     header1_hash = sha3(header1)
-    handler.add_header(header1, primary_key)
+    handler.add_header(header1, primary_addr)
     handler.mine(sharding_config['SHUFFLING_CYCLE_LENGTH'])
 
-    header2 = get_testing_colhdr(handler, shard_id, header1_hash, 2, privkey=primary_key)
+    header2 = get_testing_colhdr(handler, shard_id, header1_hash, 2)
     header2_hash = sha3(header2)
-    handler.add_header(header2, primary_key)
+    handler.add_header(header2, primary_addr)
     handler.mine(sharding_config['SHUFFLING_CYCLE_LENGTH'])
 
     # do_withdraw(handler, validator_index)
@@ -744,10 +753,17 @@ def test_handler(HandlerClass):
     assert handler.get_collation_header_score(shard_id, header1_hash) == 1
     assert handler.get_collation_header_score(shard_id, header2_hash) == 2
 
-    handler.tx_to_shard(accounts[1], shard_id, 100000, 1, b'', 1234567, primary_key)
+    handler.tx_to_shard(
+        keys[1].public_key.to_checksum_address(),
+        shard_id,
+        100000,
+        1,
+        b'',
+        1234567,
+        primary_addr,
+    )
     handler.mine(1)
     assert handler.get_receipt_value(0) == 1234567
-    print(accounts)
 
 
 def test_contract(HandlerClass):
@@ -792,6 +808,6 @@ def update_num_test(_num_test: num):
 
 
 if __name__ == '__main__':
-    test_handler(TesterChainHandler)
-    # test_handler(RPCHandler)
+    # test_handler(TesterChainHandler)
+    test_handler(RPCHandler)
     # test_contract(TesterChainHandler)
