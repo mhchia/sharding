@@ -68,7 +68,7 @@ def __init__():
     self.empty_slots_stack_top = 0
     # 10 ** 20 wei = 100 ETH
     self.deposit_size = 100000000000000000000
-    self.shuffling_cycle_length = 25
+    self.shuffling_cycle_length = 5
     self.sig_gas_limit = 400000
     self.period_length = 5
     self.num_validators_per_cycle = 100
@@ -226,6 +226,10 @@ def get_shard_list(valcode_addr: address) -> bool[100]:
 @public
 def add_header(header: bytes <= 4096) -> bool:
     zero_addr = 0x0000000000000000000000000000000000000000
+
+    # values = RLPList(header, [num, num, bytes32, bytes32, bytes32, address, bytes32])
+    # values = RLPList(header, [address, address, address, address, address, address,  address])
+    # return True
 
     values = RLPList(header, [num, num, bytes32, bytes32, bytes32, address, bytes32, bytes32, num, bytes])
     shard_id = values[0]
