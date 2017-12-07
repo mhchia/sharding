@@ -33,6 +33,7 @@ sharding_config['SHUFFLING_CYCLE_LENGTH'] = 5
 
 TX_GAS = 510000
 GASPRICE = 1
+PASSPHRASE = '123'
 
 def get_func_abi(func_name, contract_abi):
     for func_abi in contract_abi:
@@ -103,7 +104,187 @@ def decode_vmc_call_result(func_name, result):
 
 class BaseChainHandler:
 
-    PASSPHRASE = '123'
+    # RPC related
+
+    def get_block_by_number(self, block_number):
+        raise NotImplementedError("Must be implemented by subclasses")
+
+    def get_block_number(self):
+        raise NotImplementedError("Must be implemented by subclasses")
+
+    def get_nonce(self, address):
+        raise NotImplementedError("Must be implemented by subclasses")
+
+    def import_privkey(self, privkey, passphrase=PASSPHRASE):
+        raise NotImplementedError("Must be implemented by subclasses")
+
+    def deploy_contract(self, bytecode, address):
+        raise NotImplementedError("Must be implemented by subclasses")
+
+    def direct_tx(self, tx):
+        raise NotImplementedError("Must be implemented by subclasses")
+
+    def mine(self, number):
+        raise NotImplementedError("Must be implemented by subclasses")
+
+    def unlock_account(self, account, passphrase=PASSPHRASE):
+        raise NotImplementedError("Must be implemented by subclasses")
+
+    def get_transaction_receipt(self, tx_hash):
+        raise NotImplementedError("Must be implemented by subclasses")
+
+    def send_transaction(self, tx_obj):
+        raise NotImplementedError("Must be implemented by subclasses")
+
+    def call(self, tx_obj):
+        raise NotImplementedError("Must be implemented by subclasses")
+
+
+class TesterChainHandler(BaseChainHandler):
+
+    def __init__(self):
+        self.et = EthereumTester(backend=PyEVMBackend(), auto_mine_transactions=False)
+
+    def get_block_by_number(self, block_number):
+        block = self.et.get_block_by_number(block_number)
+        return block
+
+    def get_block_number(self):
+        # raise CanonicalHeadNotFound if head is not found
+        head_block_header = self.et.backend.chain.get_canonical_head()
+        return head_block_header.block_number
+
+    def get_nonce(self, address):
+        return self.et.get_nonce(address)
+
+    def import_privkey(self, privkey, passphrase=PASSPHRASE):
+        self.et.add_account(privkey, passphrase)
+
+    def mine(self, number):
+        self.et.mine_blocks(num_blocks=number)
+
+    def unlock_account(self, account, passphrase=PASSPHRASE):
+        # self.et.unlock_account(account, passphrase)
+        pass
+
+    def get_transaction_receipt(self, tx_hash):
+        return self.et.get_transaction_receipt(tx_hash)
+
+    def send_transaction(self, tx_obj):
+        return self.et.send_transaction(tx_obj)
+
+    def call(self, tx_obj):
+        return self.et.call(tx_obj)
+
+    # utils
+
+    def send_tx(self, sender_addr, to=None, value=0, data=b'', gas=TX_GAS, gasprice=GASPRICE):
+        tx_obj = {
+            'from': sender_addr,
+            'value': value,
+            'gas': gas,
+            'gas_price': gasprice,
+            'data': eth_utils.encode_hex(data),
+        }
+        if to is not None:
+            tx_obj['to'] = to
+        self.unlock_account(sender_addr)
+        tx_hash = self.send_transaction(tx_obj)
+        return tx_hash
+
+    def deploy_contract(self, bytecode, address):
+        return self.send_tx(address, value=0, data=bytecode)
+
+    def direct_tx(self, tx):
+        # FIXME: hacky
+        from ethereum.transactions import Transaction
+        if isinstance(tx, Transaction):
+            from evm.vm.forks.spurious_dragon.transactions import SpuriousDragonTransaction
+            evm_tx = SpuriousDragonTransaction(
+                tx.nonce,
+                tx.gasprice,
+                tx.startgas,
+                tx.to,
+                tx.value,
+                tx.data,
+                tx.v,
+                tx.r,
+                tx.s,
+            )
+        else:
+            evm_tx = tx
+        # FIXME: hacky
+        return self.et.backend.chain.apply_transaction(evm_tx)
+
+
+class RPCHandler(BaseChainHandler):
+
+    def __init__(self, rpc_server_url='http://localhost:8545'):
+        # self.init
+        self._w3 = Web3(HTTPProvider(rpc_server_url))
+
+    # RPC related
+
+    def get_block_by_number(self, block_number):
+        return self._w3.eth.getBlock(block_number)
+
+    def get_block_number(self):
+        return self._w3.eth.blockNumber
+
+    def get_code(self, address):
+        return self._w3.eth.getCode(address)
+
+    def get_nonce(self, address):
+        return self._w3.eth.getTransactionCount(address)
+
+    def import_privkey(self, privkey, passphrase=PASSPHRASE):
+        '''
+            @privkey: bytes
+        '''
+        self._w3.personal.importRawKey(privkey, passphrase)
+
+    def mine(self, number):
+        '''
+        '''
+        expected_block_number = self.get_block_number() + number
+        self._w3.miner.start(1)
+        while self.get_block_number() < expected_block_number:
+            time.sleep(0.1)
+        self._w3.miner.stop()
+
+    def unlock_account(self, account, passphrase=PASSPHRASE):
+        account = eth_utils.address.to_checksum_address(account)
+        self._w3.personal.unlockAccount(account, passphrase)
+
+    def get_transaction_receipt(self, tx_hash):
+        return self._w3.eth.getTransactionReceipt(tx_hash)
+
+    def send_transaction(self, tx_obj):
+        return self._w3.eth.sendTransaction(tx_obj)
+
+    def call(self, tx_obj):
+        return self._w3.eth.call(tx_obj)
+
+    # utils
+
+    def deploy_contract(self, bytecode, address):
+        self.unlock_account(address)
+        self.send_transaction(
+            {"from": address, "data": bytecode}
+        )
+
+    def direct_tx(self, tx):
+        raw_tx = rlp.encode(tx)
+        raw_tx_hex = self._w3.toHex(raw_tx)
+        tx_hash = self._w3.eth.sendRawTransaction(raw_tx_hex)
+        return tx_hash
+
+
+class VMCHandler:
+
+    def __init__(self, chain_handler=TesterChainHandler()):
+        self.chain_handler = chain_handler
+        self.init_vmc_attributes()
 
     def init_vmc_attributes(self):
         self._vmc_addr = eth_utils.address.to_checksum_address(
@@ -120,63 +301,6 @@ class BaseChainHandler:
         # print("!@# vmc_abi={}".format(self._vmc_abi))
         self._vmc_ct = validator_manager_utils.get_valmgr_ct()
 
-    # RPC related
-
-    def get_block_by_number(self, block_number):
-        raise NotImplementedError("Must be implemented by subclasses")
-
-    def get_block_number(self):
-        raise NotImplementedError("Must be implemented by subclasses")
-
-    def get_nonce(self, address):
-        raise NotImplementedError("Must be implemented by subclasses")
-
-    def import_privkey(self, privkey):
-        raise NotImplementedError("Must be implemented by subclasses")
-
-    def is_vmc_deployed(self):
-        raise NotImplementedError("Must be implemented by subclasses")
-
-    def deploy_contract(self, bytecode, address):
-        raise NotImplementedError("Must be implemented by subclasses")
-
-    def direct_tx(self, tx):
-        raise NotImplementedError("Must be implemented by subclasses")
-
-    def deploy_initiating_contracts(self, privkey):
-        if not self.is_vmc_deployed():
-            addr = privkey.public_key.to_checksum_address()
-            nonce = self.get_nonce(addr)
-            txs = validator_manager_utils.mk_initiating_contracts(privkey.to_bytes(), nonce)
-            for tx in txs[:3]:
-                self.direct_tx(tx)
-            self.mine(1)
-            for tx in txs[3:]:
-                self.direct_tx(tx)
-                self.mine(1)
-            print(
-                '!@# deploy: vmc: ',
-                self.get_transaction_receipt(eth_utils.encode_hex(txs[-1].hash)),
-            )
-
-    def setup_vmc_instance(self):
-        raise NotImplementedError("Must be implemented by subclasses")
-
-    def mine(self, number):
-        raise NotImplementedError("Must be implemented by subclasses")
-
-    def unlock_account(self, account):
-        raise NotImplementedError("Must be implemented by subclasses")
-
-    def get_transaction_receipt(self, tx_hash):
-        raise NotImplementedError("Must be implemented by subclasses")
-
-    def send_transaction(self, tx_obj):
-        raise NotImplementedError("Must be implemented by subclasses")
-
-    def call(self, tx_obj):
-        raise NotImplementedError("Must be implemented by subclasses")
-
     # vmc utils ####################################
 
     def call_vmc(
@@ -188,7 +312,7 @@ class BaseChainHandler:
             gas=TX_GAS,
             gas_price=GASPRICE):
         tx_obj = mk_vmc_tx_obj(func_name, args, sender_addr, value, gas, gas_price)
-        result = self.call(tx_obj)
+        result = self.chain_handler.call(tx_obj)
         decoded_result = decode_vmc_call_result(func_name, result)
         print("!@# call_vmc: func_name={}, args={}, result={}".format(
             func_name,
@@ -206,7 +330,7 @@ class BaseChainHandler:
             gas=TX_GAS,
             gas_price=GASPRICE):
         tx_obj = mk_vmc_tx_obj(func_name, args, sender_addr, value, gas, gas_price)
-        tx_hash = self.send_transaction(tx_obj)
+        tx_hash = self.chain_handler.send_transaction(tx_obj)
         print("!@# send_vmc_tx: func_name={}, args={}, tx_hash={}".format(
             func_name,
             args,
@@ -304,191 +428,62 @@ class BaseChainHandler:
         return self.call_vmc('get_collation_headers__score', [shard_id, collation_header_hash])
 
     def get_num_validators(self):
-        result = self.call_vmc('get_num_validators', [])
-        return result
+        return self.call_vmc('get_num_validators', [])
 
     def get_receipt_value(self, receipt_id):
         return self.call_vmc('get_receipts__value', [receipt_id])
 
-
     # utils #######################################################
+
+    def is_vmc_deployed(self):
+        return (
+            # self.chain_handler.get_code(self._vmc_addr) != b'' and \
+            self.chain_handler.get_nonce(self._vmc_sender_addr) != 0
+        )
 
     def deploy_valcode_and_deposit(self, validator_index):
         privkey = keys[validator_index]
         address = privkey.public_key.to_checksum_address()
-        self.unlock_account(address)
+        self.chain_handler.unlock_account(address)
         valcode = validator_manager_utils.mk_validation_code(
             privkey.public_key.to_canonical_address()
         )
-        nonce = self.get_nonce(address)
+        nonce = self.chain_handler.get_nonce(address)
         valcode_addr = eth_utils.address.to_checksum_address(
             generate_contract_address(address, nonce)
         )
-        self.unlock_account(address)
-        self.deploy_contract(valcode, address)
-        self.mine(1)
+        self.chain_handler.unlock_account(address)
+        self.chain_handler.deploy_contract(valcode, address)
+        self.chain_handler.mine(1)
         self.deposit(valcode_addr, address, address)
 
-
-class TesterChainHandler(BaseChainHandler):
-
-    def __init__(self):
-        self.et = EthereumTester(backend=PyEVMBackend(), auto_mine_transactions=False)
-        self.init_vmc_attributes()
-
-    def get_block_by_number(self, block_number):
-        block = self.et.get_block_by_number(block_number)
-        return block
-
-    def get_block_number(self):
-        # raise CanonicalHeadNotFound if head is not found
-        head_block_header = self.et.backend.chain.get_canonical_head()
-        return head_block_header.block_number
-
-    def get_nonce(self, address):
-        return self.et.get_nonce(address)
-
-    def import_privkey(self, privkey):
-        passphrase = self.PASSPHRASE
-        self.et.add_account(privkey, passphrase)
-
-    def mine(self, number):
-        self.et.mine_blocks(num_blocks=number)
-
-    def unlock_account(self, account):
-        # self.et.unlock_account(account, passphrase)
-        pass
-
-    def get_transaction_receipt(self, tx_hash):
-        return self.et.get_transaction_receipt(tx_hash)
-
-    def send_transaction(self, tx_obj):
-        return self.et.send_transaction(tx_obj)
-
-    def call(self, tx_obj):
-        return self.et.call(tx_obj)
-
-    # utils
-
-    def send_tx(self, sender_addr, to=None, value=0, data=b'', gas=TX_GAS, gasprice=GASPRICE):
-        tx_obj = {
-            'from': sender_addr,
-            'value': value,
-            'gas': gas,
-            'gas_price': gasprice,
-            'data': eth_utils.encode_hex(data),
-        }
-        if to is not None:
-            tx_obj['to'] = to
-        self.unlock_account(sender_addr)
-        tx_hash = self.send_transaction(tx_obj)
-        return tx_hash
-
-    def deploy_contract(self, bytecode, address):
-        return self.send_tx(address, value=0, data=bytecode)
-
-    def direct_tx(self, tx):
-        # FIXME: hacky
-        from ethereum.transactions import Transaction
-        if isinstance(tx, Transaction):
-            from evm.vm.forks.spurious_dragon.transactions import SpuriousDragonTransaction
-            evm_tx = SpuriousDragonTransaction(
-                tx.nonce,
-                tx.gasprice,
-                tx.startgas,
-                tx.to,
-                tx.value,
-                tx.data,
-                tx.v,
-                tx.r,
-                tx.s,
+    def deploy_initiating_contracts(self, privkey):
+        if not self.is_vmc_deployed():
+            addr = privkey.public_key.to_checksum_address()
+            self.chain_handler.unlock_account(addr)
+            nonce = self.chain_handler.get_nonce(addr)
+            txs = validator_manager_utils.mk_initiating_contracts(privkey.to_bytes(), nonce)
+            for tx in txs[:3]:
+                self.chain_handler.direct_tx(tx)
+            self.chain_handler.mine(1)
+            for tx in txs[3:]:
+                self.chain_handler.direct_tx(tx)
+                self.chain_handler.mine(1)
+            print(
+                '!@# deploy: vmc: ',
+                self.chain_handler.get_transaction_receipt(eth_utils.encode_hex(txs[-1].hash)),
             )
-        else:
-            evm_tx = tx
-        # FIXME: hacky
-        return self.et.backend.chain.apply_transaction(evm_tx)
 
-    # vmc
-    def is_vmc_deployed(self):
-        return self.get_nonce(self._vmc_sender_addr) != 0
+    def first_setup_and_deposit(self, validator_index):
+        self.deploy_valcode_and_deposit(validator_index)
+        # TODO: error occurs when we don't mine so many blocks
+        self.chain_handler.mine(sharding_config['SHUFFLING_CYCLE_LENGTH'])
 
-
-class RPCHandler(BaseChainHandler):
-
-    def __init__(self, rpc_server_url='http://localhost:8545'):
-        # self.init
-        self._w3 = Web3(HTTPProvider(rpc_server_url))
-        self.init_vmc_attributes()
-
-    # RPC related
-
-    def get_block_by_number(self, block_number):
-        return self._w3.eth.getBlock(block_number)
-
-    def get_block_number(self):
-        return self._w3.eth.blockNumber
-
-    def get_code(self, address):
-        return self._w3.eth.getCode(address)
-
-    def get_nonce(self, address):
-        return self._w3.eth.getTransactionCount(address)
-
-    def import_privkey(self, privkey):
-        '''
-            @privkey: bytes
-        '''
-        passphrase = self.PASSPHRASE
-        self._w3.personal.importRawKey(privkey, passphrase)
-
-    def mine(self, number):
-        '''
-        '''
-        expected_block_number = self.get_block_number() + number
-        self._w3.miner.start(1)
-        while self.get_block_number() < expected_block_number:
-            time.sleep(0.1)
-        self._w3.miner.stop()
-
-    def unlock_account(self, account):
-        account = eth_utils.address.to_checksum_address(account)
-        passphrase = self.PASSPHRASE
-        self._w3.personal.unlockAccount(account, passphrase)
-
-    def get_transaction_receipt(self, tx_hash):
-        return self._w3.eth.getTransactionReceipt(tx_hash)
-
-    def send_transaction(self, tx_obj):
-        return self._w3.eth.sendTransaction(tx_obj)
-
-    def call(self, tx_obj):
-        return self._w3.eth.call(tx_obj)
-
-    # utils
-
-    def is_vmc_deployed(self):
-        return (
-            # self.get_code(self._vmc_addr) != b'' and \
-            self.get_nonce(self._vmc_sender_addr) != 0
-        )
-
-    def deploy_contract(self, bytecode, address):
-        self.unlock_account(address)
-        self.send_transaction(
-            {"from": address, "data": bytecode}
-        )
-
-    def direct_tx(self, tx):
-        raw_tx = rlp.encode(tx)
-        raw_tx_hex = self._w3.toHex(raw_tx)
-        tx_hash = self._w3.eth.sendRawTransaction(raw_tx_hex)
-        return tx_hash
-
-
-class VMCHandler:
-    def __init__(self, chain_handler=TesterChainHandler()):
-        self.chain_handler = chain_handler
-
+    def import_key_to_chain_handler(self, key):
+        try:
+            self.chain_handler.import_privkey(key.to_hex())
+        except (ValueError, ValidationError):
+            pass
 
 
 def print_current_contract_address(sender_address, nonce):
@@ -499,36 +494,24 @@ def print_current_contract_address(sender_address, nonce):
     ]
     print(list_addresses)
 
-def import_tester_keys(handler):
-    for privkey in keys:
-        try:
-            handler.import_privkey(privkey.to_hex())
-        except (ValueError, ValidationError):
-            pass
-
-def first_setup_and_deposit(handler, validator_index):
-    handler.deploy_valcode_and_deposit(validator_index)
-    # TODO: error occurs when we don't mine so many blocks
-    handler.mine(sharding_config['SHUFFLING_CYCLE_LENGTH'])
-
-def do_withdraw(handler, validator_index):
+def do_withdraw(vmc_handler, validator_index):
     assert validator_index < len(keys)
     privkey = keys[validator_index]
     signature = contract_utils.sign(validator_manager_utils.WITHDRAW_HASH, privkey)
-    handler.withdraw(validator_index, signature, privkey)
-    handler.mine(1)
+    vmc_handler.withdraw(validator_index, signature, privkey)
+    vmc_handler.chain_handler.mine(1)
 
 def get_testing_colhdr(
-        handler,
+        vmc_handler,
         shard_id,
         parent_collation_hash,
         number,
         collation_coinbase=keys[0].public_key.to_canonical_address(),
         privkey=keys[0].to_bytes()):
     period_length = sharding_config['PERIOD_LENGTH']
-    expected_period_number = (handler.get_block_number() + 1) // period_length
+    expected_period_number = (vmc_handler.chain_handler.get_block_number() + 1) // period_length
     print("!@# add_header: expected_period_number=", expected_period_number)
-    period_start_prevhash = handler.get_period_start_prevhash(expected_period_number)
+    period_start_prevhash = vmc_handler.get_period_start_prevhash(expected_period_number)
     print("!@# period_start_prevhash()={}".format(period_start_prevhash))
     tx_list_root = b"tx_list " * 4
     post_state_root = b"post_sta" * 4
@@ -561,54 +544,54 @@ def get_testing_colhdr(
     ])
 
 
-def test_handler(HandlerClass):
+def test_handler(ChainHandlerClass):
     shard_id = 0
     validator_index = 0
     primary_key = keys[validator_index].to_hex()
     primary_addr = keys[validator_index].public_key.to_checksum_address()
     zero_addr = eth_utils.address.to_checksum_address(b'\x00' * 20)
 
-    handler = HandlerClass()
+    vmc_handler = VMCHandler(ChainHandlerClass())
     print(eth_utils.address.to_checksum_address(validator_manager_utils.viper_rlp_decoder_addr))
     print(eth_utils.address.to_checksum_address(validator_manager_utils.sighasher_addr))
 
     # print("!@# handler.get_block_number()={}".format(handler.get_block_number()))
-    if not handler.is_vmc_deployed():
+    if not vmc_handler.is_vmc_deployed():
         print('not handler.is_vmc_deployed()')
-        import_tester_keys(handler)
+        # import privkey
+        for key in keys:
+            vmc_handler.import_key_to_chain_handler(key)
 
-        handler.unlock_account(primary_addr)
-        handler.deploy_initiating_contracts(keys[validator_index])
-        handler.mine(1)
-        first_setup_and_deposit(handler, validator_index)
+        vmc_handler.deploy_initiating_contracts(keys[validator_index])
+        vmc_handler.chain_handler.mine(1)
+        vmc_handler.first_setup_and_deposit(validator_index)
 
-    assert handler.is_vmc_deployed()
+    assert vmc_handler.is_vmc_deployed()
 
-    handler.mine(sharding_config['SHUFFLING_CYCLE_LENGTH'])
+    vmc_handler.chain_handler.mine(sharding_config['SHUFFLING_CYCLE_LENGTH'])
     # handler.deploy_valcode_and_deposit(validator_index); handler.mine(1)
 
-    assert handler.sample(0) != zero_addr
-    assert handler.get_num_validators() == 1
-    print("!@# get_num_validators(): ", handler.get_num_validators())
+    assert vmc_handler.sample(0) != zero_addr
+    assert vmc_handler.get_num_validators() == 1
+    print("!@# get_num_validators(): ", vmc_handler.get_num_validators())
 
     addr = eth_utils.address.to_checksum_address(primary_addr)
-    handler.unlock_account(addr)
 
     genesis_colhdr_hash = b'\x00' * 32
-    header1 = get_testing_colhdr(handler, shard_id, genesis_colhdr_hash, 1)
+    header1 = get_testing_colhdr(vmc_handler, shard_id, genesis_colhdr_hash, 1)
     header1_hash = sha3(header1)
-    handler.add_header(header1, primary_addr)
-    handler.mine(sharding_config['SHUFFLING_CYCLE_LENGTH'])
+    vmc_handler.add_header(header1, primary_addr)
+    vmc_handler.chain_handler.mine(sharding_config['SHUFFLING_CYCLE_LENGTH'])
 
-    header2 = get_testing_colhdr(handler, shard_id, header1_hash, 2)
+    header2 = get_testing_colhdr(vmc_handler, shard_id, header1_hash, 2)
     header2_hash = sha3(header2)
-    handler.add_header(header2, primary_addr)
-    handler.mine(sharding_config['SHUFFLING_CYCLE_LENGTH'])
+    vmc_handler.add_header(header2, primary_addr)
+    vmc_handler.chain_handler.mine(sharding_config['SHUFFLING_CYCLE_LENGTH'])
 
-    assert handler.get_collation_header_score(shard_id, header1_hash) == 1
-    assert handler.get_collation_header_score(shard_id, header2_hash) == 2
+    assert vmc_handler.get_collation_header_score(shard_id, header1_hash) == 1
+    assert vmc_handler.get_collation_header_score(shard_id, header2_hash) == 2
 
-    handler.tx_to_shard(
+    vmc_handler.tx_to_shard(
         keys[1].public_key.to_checksum_address(),
         shard_id,
         100000,
@@ -617,13 +600,13 @@ def test_handler(HandlerClass):
         1234567,
         primary_addr,
     )
-    handler.mine(1)
-    assert handler.get_receipt_value(0) == 1234567
+    vmc_handler.chain_handler.mine(1)
+    assert vmc_handler.get_receipt_value(0) == 1234567
 
 
-def test_contract(HandlerClass):
-    handler = HandlerClass()
-    handler.mine(1)
+def test_contract(ChainHandlerClass):
+    chain_handler = ChainHandlerClass()
+    chain_handler.mine(1)
     code = """
 num_test: public(num)
 
@@ -643,23 +626,21 @@ def update_num_test(_num_test: num):
         generate_contract_address(sender_addr, handler.get_nonce(sender_addr))
     )
     print("contract_addr={}".format(contract_addr))
-    tx_hash = handler.deploy_contract(bytecode, sender_addr)
-    handler.mine(1)
+    tx_hash = chain_handler.deploy_contract(bytecode, sender_addr)
+    chain_handler.mine(1)
     print(tx_hash)
     assert contract_addr == handler.et.get_transaction_receipt(tx_hash)['contract_address']
     tx_obj = mk_contract_tx_obj('get_num_test', [], contract_addr, abi, sender_addr, 0, 50000, 1)
     print(handler.et.call(tx_obj))
-    # tx_hash = handler.et.send_transaction(tx_obj)
-    handler.mine(1)
+    # tx_hash = chain_handler.send_transaction(tx_obj)
+    chain_handler.mine(1)
 
     tx_obj = mk_contract_tx_obj('update_num_test', [4], contract_addr, abi, sender_addr, 0, 50000, 1)
-    tx_hash = handler.et.send_transaction(tx_obj)
-    handler.mine(1)
+    tx_hash = chain_handler.send_transaction(tx_obj)
+    chain_handler.mine(1)
 
     tx_obj = mk_contract_tx_obj('get_num_test', [], contract_addr, abi, sender_addr, 0, 50000, 1)
-    print(handler.et.call(tx_obj))
-    # print(tx_hash)
-    # print(handler.et.get_transaction_receipt(tx_hash))
+    print(chain_handler.call(tx_obj))
 
 
 if __name__ == '__main__':
