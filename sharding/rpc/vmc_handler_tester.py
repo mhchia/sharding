@@ -1,9 +1,12 @@
 import rlp
 
 from eth_tester.backends.pyevm.main import get_default_account_keys
-from eth_tester.utils.accounts import generate_contract_address
 
 import eth_utils
+
+from evm.utils.address import (
+    generate_contract_address,
+)
 
 from chain_handler import (
     RPCChainHandler,
@@ -21,7 +24,6 @@ from vmc_handler import (
 
 import vmc_utils
 
-
 keys = get_default_account_keys()
 
 sha3 = eth_utils.crypto.keccak
@@ -29,7 +31,7 @@ sha3 = eth_utils.crypto.keccak
 def print_current_contract_address(sender_address, nonce):
     list_addresses = [
         eth_utils.address.to_checksum_address(
-            generate_contract_address(keys[0].public_key.to_checksum_address(), i)
+            generate_contract_address(keys[0].public_key.to_canonical_address(), i)
         ) for i in range(nonce + 1)
     ]
     print(list_addresses)

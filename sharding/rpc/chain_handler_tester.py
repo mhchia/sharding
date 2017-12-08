@@ -1,7 +1,8 @@
 from viper import compiler
 
 from eth_tester.backends.pyevm.main import get_default_account_keys
-from eth_tester.utils.accounts import generate_contract_address
+
+from evm.utils.address import generate_contract_address
 
 import eth_utils
 
@@ -35,7 +36,10 @@ def update_num_test(_num_test: num):
     abi = compiler.mk_full_signature(code)
     sender_addr = keys[0].public_key.to_checksum_address()
     contract_addr = eth_utils.address.to_checksum_address(
-        generate_contract_address(sender_addr, chain_handler.get_nonce(sender_addr))
+        generate_contract_address(
+            eth_utils.to_canonical_address(sender_addr),
+            chain_handler.get_nonce(sender_addr)
+        )
     )
     tx_hash = chain_handler.deploy_contract(bytecode, sender_addr)
     chain_handler.mine(1)

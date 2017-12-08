@@ -1,7 +1,8 @@
 from eth_tester.exceptions import ValidationError
-from eth_tester.utils.accounts import generate_contract_address
 
 import eth_utils
+
+from evm.utils.address import generate_contract_address
 
 from viper import compiler
 
@@ -226,7 +227,7 @@ class VMCHandler:
         )
         nonce = self.chain_handler.get_nonce(address)
         valcode_addr = eth_utils.address.to_checksum_address(
-            generate_contract_address(address, nonce)
+            generate_contract_address(eth_utils.to_canonical_address(address), nonce)
         )
         self.chain_handler.unlock_account(address)
         self.chain_handler.deploy_contract(valcode, address)
