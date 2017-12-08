@@ -10,6 +10,9 @@ from evm.utils.address import (
 
 from chain_handler import (
     RPCChainHandler,
+)
+
+from chain_handler_tester import (
     TesterChainHandler,
 )
 
