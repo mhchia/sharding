@@ -1,20 +1,24 @@
+import rlp
+
 from eth_tester.backends.pyevm.main import get_default_account_keys
 from eth_tester.utils.accounts import generate_contract_address
-import eth_utils
-import rlp
-from viper import compiler
 
-from sharding import contract_utils
+import eth_utils
 
 from chain_handler import (
     RPCChainHandler,
     TesterChainHandler,
 )
+
 from config import (
     PERIOD_LENGTH,
     SHUFFLING_CYCLE_LENGTH,
 )
-from vmc_handler import VMCHandler
+
+from vmc_handler import (
+    VMCHandler,
+)
+
 import vmc_utils
 
 
@@ -33,9 +37,9 @@ def print_current_contract_address(sender_address, nonce):
 def do_withdraw(vmc_handler, validator_index):
     assert validator_index < len(keys)
     privkey = keys[validator_index]
-    # FIXME: remove the need of contract_utils
-    signature = contract_utils.sign(vmc_utils.WITHDRAW_HASH, privkey.to_bytes())
-    vmc_handler.withdraw(validator_index, signature, privkey)
+    sender_addr = privkey.public_key.to_checksum_address()
+    signature = vmc_utils.sign(vmc_utils.WITHDRAW_HASH, privkey)
+    vmc_handler.withdraw(validator_index, signature, sender_addr)
     vmc_handler.chain_handler.mine(1)
 
 def get_testing_colhdr(
@@ -44,7 +48,7 @@ def get_testing_colhdr(
         parent_collation_hash,
         number,
         collation_coinbase=keys[0].public_key.to_canonical_address(),
-        privkey=keys[0].to_bytes()):
+        privkey=keys[0]):
     period_length = PERIOD_LENGTH
     expected_period_number = (vmc_handler.chain_handler.get_block_number() + 1) // period_length
     print("!@# add_header: expected_period_number=", expected_period_number)
@@ -66,8 +70,7 @@ def get_testing_colhdr(
             number,
         ])
     )
-    # FIXME: remove the need of contract_utils
-    sig = contract_utils.sign(sighash, privkey)
+    sig = vmc_utils.sign(sighash, privkey)
     return rlp.encode([
         shard_id,
         expected_period_number,
@@ -89,10 +92,15 @@ def test_handler(ChainHandlerClass):
     zero_addr = eth_utils.address.to_checksum_address(b'\x00' * 20)
 
     vmc_handler = VMCHandler(ChainHandlerClass(), primary_addr=primary_addr)
-    print(eth_utils.address.to_checksum_address(vmc_utils.viper_rlp_decoder_addr))
-    print(eth_utils.address.to_checksum_address(vmc_utils.sighasher_addr))
+    print(
+        "!@# viper_rlp_decoder_addr:",
+        eth_utils.to_checksum_address(vmc_utils.viper_rlp_decoder_addr),
+    )
+    print(
+        "!@# sighasher_addr:",
+        eth_utils.to_checksum_address(vmc_utils.sighasher_addr)
+    )
 
-    # print("!@# handler.get_block_number()={}".format(handler.get_block_number()))
     if not vmc_handler.is_vmc_deployed():
         print('not handler.is_vmc_deployed()')
         # import privkey
@@ -108,7 +116,7 @@ def test_handler(ChainHandlerClass):
     vmc_handler.chain_handler.mine(SHUFFLING_CYCLE_LENGTH)
     # handler.deploy_valcode_and_deposit(validator_index); handler.mine(1)
 
-    assert vmc_handler.sample(0) != zero_addr
+    assert vmc_handler.sample(shard_id) != zero_addr
     assert vmc_handler.get_num_validators() == 1
     print("!@# get_num_validators(): ", vmc_handler.get_num_validators())
 
@@ -137,6 +145,10 @@ def test_handler(ChainHandlerClass):
     )
     vmc_handler.chain_handler.mine(1)
     assert vmc_handler.get_receipt_value(0) == 1234567
+
+    do_withdraw(vmc_handler, validator_index)
+    vmc_handler.chain_handler.mine(1)
+    assert vmc_handler.sample(shard_id) == zero_addr
 
 if __name__ == '__main__':
     test_handler(TesterChainHandler)

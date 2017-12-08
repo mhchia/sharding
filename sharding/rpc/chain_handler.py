@@ -1,11 +1,14 @@
 import time
 
-from eth_tester import EthereumTester
-from eth_tester.backends.pyevm import PyEVMBackend
-import eth_utils
-# from evm.exceptions import CanonicalHeadNotFound
 import rlp
+
 from web3 import Web3, HTTPProvider
+
+from eth_tester import EthereumTester
+
+from eth_tester.backends.pyevm import PyEVMBackend
+
+import eth_utils
 
 from config import (
     DEFAULT_RPC_SERVER_URL,

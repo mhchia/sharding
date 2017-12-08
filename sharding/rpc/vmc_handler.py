@@ -1,6 +1,8 @@
-from eth_tester.utils.accounts import generate_contract_address
-import eth_utils
 from eth_tester.exceptions import ValidationError
+from eth_tester.utils.accounts import generate_contract_address
+
+import eth_utils
+
 from viper import compiler
 
 from config import (
@@ -9,6 +11,7 @@ from config import (
     SHUFFLING_CYCLE_LENGTH,
     TX_GAS,
 )
+
 from vmc_utils import (
     decode_vmc_call_result,
     get_valmgr_addr,
@@ -210,7 +213,11 @@ class VMCHandler:
         )
 
     def deploy_valcode_and_deposit(self, key):
-        '''@key: Key object
+        '''
+        Deploy validation code of and with the key, and do deposit
+
+        :param key: Key object
+        :return: returns nothing
         '''
         address = key.public_key.to_checksum_address()
         self.chain_handler.unlock_account(address)
