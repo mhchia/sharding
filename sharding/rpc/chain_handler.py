@@ -30,12 +30,6 @@ class BaseChainHandler:
     def import_privkey(self, privkey, passphrase=PASSPHRASE):
         raise NotImplementedError("Must be implemented by subclasses")
 
-    def deploy_contract(self, bytecode, address):
-        raise NotImplementedError("Must be implemented by subclasses")
-
-    def direct_tx(self, tx):
-        raise NotImplementedError("Must be implemented by subclasses")
-
     def mine(self, number):
         raise NotImplementedError("Must be implemented by subclasses")
 
@@ -49,6 +43,14 @@ class BaseChainHandler:
         raise NotImplementedError("Must be implemented by subclasses")
 
     def call(self, tx_obj):
+        raise NotImplementedError("Must be implemented by subclasses")
+
+    # utils
+
+    def deploy_contract(self, bytecode, address, value=0, gas=TX_GAS, gas_price=GASPRICE):
+        raise NotImplementedError("Must be implemented by subclasses")
+
+    def direct_tx(self, tx):
         raise NotImplementedError("Must be implemented by subclasses")
 
 
@@ -90,12 +92,12 @@ class TesterChainHandler(BaseChainHandler):
 
     # utils
 
-    def send_tx(self, sender_addr, to=None, value=0, data=b'', gas=TX_GAS, gasprice=GASPRICE):
+    def send_tx(self, sender_addr, to=None, value=0, data=b'', gas=TX_GAS, gas_price=GASPRICE):
         tx_obj = {
             'from': sender_addr,
             'value': value,
             'gas': gas,
-            'gas_price': gasprice,
+            'gas_price': gas_price,
             'data': eth_utils.encode_hex(data),
         }
         if to is not None:
@@ -104,8 +106,8 @@ class TesterChainHandler(BaseChainHandler):
         tx_hash = self.send_transaction(tx_obj)
         return tx_hash
 
-    def deploy_contract(self, bytecode, address):
-        return self.send_tx(address, value=0, data=bytecode)
+    def deploy_contract(self, bytecode, address, value=0, gas=TX_GAS, gas_price=GASPRICE):
+        return self.send_tx(address, value=value, data=bytecode, gas=gas, gas_price=gas_price)
 
     def direct_tx(self, tx):
         return self.et.backend.chain.apply_transaction(tx)
@@ -114,7 +116,6 @@ class TesterChainHandler(BaseChainHandler):
 class RPCChainHandler(BaseChainHandler):
 
     def __init__(self, rpc_server_url=DEFAULT_RPC_SERVER_URL):
-        # self.init
         self._w3 = Web3(HTTPProvider(rpc_server_url))
 
     # RPC related
@@ -161,11 +162,15 @@ class RPCChainHandler(BaseChainHandler):
 
     # utils
 
-    def deploy_contract(self, bytecode, address):
+    def deploy_contract(self, bytecode, address, value=0, gas=TX_GAS, gas_price=GASPRICE):
         self.unlock_account(address)
-        self.send_transaction(
-            {"from": address, "data": bytecode}
-        )
+        self.send_transaction({
+            'from': address,
+            'value': value,
+            'gas': gas,
+            'gas_price': gas_price,
+            'data': bytecode,
+        })
 
     def direct_tx(self, tx):
         raw_tx = rlp.encode(tx)

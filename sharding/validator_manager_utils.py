@@ -18,10 +18,7 @@ from sharding.contract_utils import (
     call_tx,
 )
 
-
-DEPOSIT_SIZE = sharding_config['DEPOSIT_SIZE']
 WITHDRAW_HASH = utils.sha3("withdraw")
-ADD_HEADER_TOPIC = utils.sha3("add_header()")
 
 _valmgr_abi = None
 _valmgr_ct = None
